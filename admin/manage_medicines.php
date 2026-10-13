@@ -5,16 +5,7 @@ require_staff();
 $role = $_SESSION['staff_role'] ?? '';
 if (!in_array($role, ['Admin', 'Reception'], true)) { http_response_code(403); exit('Access denied.'); }
 
-$conn->query("CREATE TABLE IF NOT EXISTS clinic_items (
-    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(190) NOT NULL,
-    category VARCHAR(40) NOT NULL DEFAULT 'Medicine',
-    unit_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    is_active TINYINT(1) NOT NULL DEFAULT 1,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_clinic_item_name_category (name, category)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
 
 function med_e($v): string { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 $categories = ['Medicine','Therapy','Lab','Consultation','Miscellaneous'];
@@ -125,6 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    $_SESSION['medicine_csrf'] = bin2hex(random_bytes(32));
     header('Location: manage_medicines.php'); exit;
 }
 

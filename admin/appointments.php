@@ -10,6 +10,17 @@ if (!in_array($role, ['Admin', 'Reception', 'Doctor'], true)) {
     exit('Access denied.');
 }
 
+/*
+|--------------------------------------------------------------------------
+| CSRF protection
+|--------------------------------------------------------------------------
+*/
+if (empty($_SESSION['appointments_csrf'])) {
+    $_SESSION['appointments_csrf'] = bin2hex(random_bytes(32));
+}
+
+$appointmentsCsrf = $_SESSION['appointments_csrf'];
+
 function appt_e($value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -71,6 +82,21 @@ $flash = $_SESSION['appointments_flash'] ?? null;
 unset($_SESSION['appointments_flash']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    $postedCsrf = (string)($_POST['csrf_token'] ?? '');
+
+    if (
+        $postedCsrf === '' ||
+        !hash_equals((string)($_SESSION['appointments_csrf'] ?? ''), $postedCsrf)
+    ) {
+        $_SESSION['appointments_flash'] = [
+            'type' => 'error',
+            'message' => 'Your session security token is invalid or expired. Please try again.'
+        ];
+
+        header('Location: appointments.php');
+        exit;
+    }
 
     $action = trim($_POST['action'] ?? '');
     $appointmentId = (int)($_POST['appointment_id'] ?? 0);
@@ -146,6 +172,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'type' => 'success',
                     'message' => 'Appointment #' . $appointmentId . ' marked as ' . $newStatus . '.'
                 ];
+
+                $_SESSION['appointments_csrf'] = bin2hex(random_bytes(32));
 
             } else {
                 $_SESSION['appointments_flash'] = [
@@ -352,7 +380,7 @@ if ($stmt) {
 
 <title>Appointments | AmarDayal Clinic</title>
 
-<link rel="stylesheet" href="../Styles/style.css">
+<link rel="stylesheet" href="<?= e(BASE_URL) ?>Styles/style.css">
 
 <style>
 *{
@@ -852,7 +880,7 @@ body{
                 </div>
 
                 <?php if (in_array($role, ['Admin', 'Reception'], true)): ?>
-                    <a class="new-appointment" href="../appointment.php">
+                    <a class="new-appointment" href="<?= e(BASE_URL) ?>appointment.php">
                         ＋ New Appointment
                     </a>
                 <?php endif; ?>
@@ -1090,6 +1118,7 @@ body{
                                             <?php if ($a['status'] === 'Pending'): ?>
 
                                                 <form class="inline-form" method="post">
+                                                    <input type="hidden" name="csrf_token" value="<?= appt_e($appointmentsCsrf) ?>">
                                                     <input type="hidden" name="action" value="approve">
                                                     <input type="hidden" name="appointment_id" value="<?= (int)$a['id'] ?>">
 
@@ -1102,6 +1131,7 @@ body{
                                                 </form>
 
                                                 <form class="inline-form" method="post">
+                                                    <input type="hidden" name="csrf_token" value="<?= appt_e($appointmentsCsrf) ?>">
                                                     <input type="hidden" name="action" value="reject">
                                                     <input type="hidden" name="appointment_id" value="<?= (int)$a['id'] ?>">
 
@@ -1117,6 +1147,7 @@ body{
 
                                                 <?php if ($role === 'Admin'): ?>
                                                     <form class="inline-form" method="post">
+                                                        <input type="hidden" name="csrf_token" value="<?= appt_e($appointmentsCsrf) ?>">
                                                         <input type="hidden" name="action" value="complete">
                                                         <input type="hidden" name="appointment_id" value="<?= (int)$a['id'] ?>">
 

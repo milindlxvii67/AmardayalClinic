@@ -9,67 +9,24 @@ $today = date('Y-m-d');
 $message = '';
 $error = '';
 
-/* =========================================================
-   QUEUE COLUMNS
-   ========================================================= */
-
-function queue_column_exists($db, $table, $column)
-{
-    $table = preg_replace('/[^A-Za-z0-9_]/', '', $table);
-    $column = preg_replace('/[^A-Za-z0-9_]/', '', $column);
-
-    $result = $db->query(
-        "SHOW COLUMNS FROM `$table` LIKE '$column'"
-    );
-
-    return $result && $result->num_rows > 0;
+/*
+|--------------------------------------------------------------------------
+| CSRF protection
+|--------------------------------------------------------------------------
+*/
+if (empty($_SESSION['reception_csrf'])) {
+    $_SESSION['reception_csrf'] = bin2hex(random_bytes(32));
 }
 
-
-function queue_ensure_column($db, $table, $column, $definition)
-{
-    if (!queue_column_exists($db, $table, $column)) {
-        $db->query(
-            "ALTER TABLE `$table` ADD COLUMN `$column` $definition"
-        );
-    }
-}
-
+$receptionCsrf = $_SESSION['reception_csrf'];
 
 /*
- * These fields make the reception queue independent
- * from the public appointment form.
- */
-
-queue_ensure_column(
-    $conn,
-    'appointments',
-    'token_no',
-    "INT NULL"
-);
-
-queue_ensure_column(
-    $conn,
-    'appointments',
-    'checked_in_at',
-    "DATETIME NULL"
-);
-
-queue_ensure_column(
-    $conn,
-    'appointments',
-    'checked_in_by',
-    "VARCHAR(120) NULL"
-);
-
-queue_ensure_column(
-    $conn,
-    'appointments',
-    'visit_id',
-    "INT NULL"
-);
-
-
+|--------------------------------------------------------------------------
+| Queue columns
+|--------------------------------------------------------------------------
+| Required columns are created by the database migration/setup.
+| This page must not ALTER TABLE on a normal request.
+*/
 /* =========================================================
    CHECK-IN
    ========================================================= */
@@ -79,7 +36,13 @@ if (
     ($_POST['action'] ?? '') === 'checkin'
 ) {
 
-    $appointmentId = (int)($_POST['appointment_id'] ?? 0);
+    if (
+        empty($_POST['csrf_token']) ||
+        !hash_equals((string)($_SESSION['reception_csrf'] ?? ''), (string)$_POST['csrf_token'])
+    ) {
+        $error = 'Your session security token is invalid or expired. Please try again.';
+    } else {
+        $appointmentId = (int)($_POST['appointment_id'] ?? 0);
 
     if ($appointmentId <= 0) {
 
@@ -387,6 +350,12 @@ if (
             }
         }
     }
+
+        /* Rotate the token after a successful check-in. */
+        if ($message !== '') {
+            $_SESSION['reception_csrf'] = bin2hex(random_bytes(32));
+        }
+    }
 }
 
 
@@ -398,6 +367,13 @@ if (
     $_SERVER['REQUEST_METHOD'] === 'POST' &&
     ($_POST['action'] ?? '') === 'call_next'
 ) {
+
+    if (
+        empty($_POST['csrf_token']) ||
+        !hash_equals((string)($_SESSION['reception_csrf'] ?? ''), (string)$_POST['csrf_token'])
+    ) {
+        $error = 'Your session security token is invalid or expired. Please try again.';
+    } else {
 
     /*
      * This only changes queue state.
@@ -453,6 +429,11 @@ if (
 
         $error =
             'There is no checked-in patient waiting in the queue.';
+    }
+
+        if ($message !== '') {
+            $_SESSION['reception_csrf'] = bin2hex(random_bytes(32));
+        }
     }
 }
 
@@ -578,7 +559,7 @@ foreach ($queue as $q) {
 
     <link
         rel="stylesheet"
-        href="../Styles/style.css"
+        href="<?= e(BASE_URL) ?>Styles/style.css"
     >
 
     <style>
@@ -1427,7 +1408,7 @@ foreach ($queue as $q) {
 
                     <a
                         class="btn primary"
-                        href="../appointment.php"
+                        href="<?= e(BASE_URL) ?>appointment.php"
                     >
                         ＋ New Appointment
                     </a>
@@ -1754,6 +1735,11 @@ foreach ($queue as $q) {
                                                 method="post"
                                                 class="checkin-form"
                                             >
+                                                <input
+                                                    type="hidden"
+                                                    name="csrf_token"
+                                                    value="<?= e($receptionCsrf) ?>"
+                                                >
 
                                                 <input
                                                     type="hidden"
@@ -1868,6 +1854,12 @@ foreach ($queue as $q) {
 
 
                             <form method="post">
+
+                                <input
+                                    type="hidden"
+                                    name="csrf_token"
+                                    value="<?= e($receptionCsrf) ?>"
+                                >
 
                                 <input
                                     type="hidden"

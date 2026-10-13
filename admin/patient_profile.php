@@ -2,6 +2,12 @@
 require_once __DIR__ . '/../config.php';
 require_staff();
 
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+$csrfToken = $_SESSION['csrf_token'];
+
 $patientId = (int)($_GET['id'] ?? $_POST['patient_id'] ?? 0);
 $error = '';
 $success = '';
@@ -78,7 +84,7 @@ function pp_status_class($status): string
    VALIDATE PATIENT ID
    ============================================================ */
 if ($patientId <= 0) {
-    header('Location: patients.php');
+    header('Location: ' . rtrim(BASE_URL, '/') . '/admin/patients.php');
     exit;
 }
 
@@ -105,6 +111,15 @@ foreach ($patientOptionalColumns as $column) {
    UPDATE PATIENT
    ============================================================ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_patient'])) {
+    $submittedToken = (string)($_POST['csrf_token'] ?? '');
+
+    if (
+        $submittedToken === ''
+        || !hash_equals((string)$_SESSION['csrf_token'], $submittedToken)
+    ) {
+        $error = 'Your session has expired. Please refresh the page and try again.';
+    }
+
     $name     = trim($_POST['name'] ?? '');
     $age      = trim($_POST['age'] ?? '');
     $gender   = trim($_POST['gender'] ?? '');
@@ -175,6 +190,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_patient'])) {
 
                 if ($stmt->execute()) {
                     $success = 'Patient profile updated successfully.';
+                    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+                    $csrfToken = $_SESSION['csrf_token'];
 
                     if (function_exists('audit')) {
                         audit(
@@ -212,7 +229,7 @@ $patient = $result ? $result->fetch_assoc() : null;
 $stmt->close();
 
 if (!$patient) {
-    header('Location: patients.php?error=Patient+not+found');
+    header('Location: ' . rtrim(BASE_URL, '/') . '/admin/patients.php?error=Patient+not+found');
     exit;
 }
 
@@ -381,7 +398,7 @@ $role = $_SESSION['staff_role'] ?? '';
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Patient Profile | AmarDayal Clinic</title>
-<link rel="stylesheet" href="../Styles/style.css">
+<link rel="stylesheet" href="<?= e(rtrim(BASE_URL, '/') . '/Styles/style.css') ?>">
 
 <style>
 * {
@@ -389,12 +406,30 @@ $role = $_SESSION['staff_role'] ?? '';
 }
 
 body {
+    margin: 0;
+    padding: 0 !important;
     background: #f4f7fb;
+    overflow-x: hidden;
+}
+
+.layout {
+    min-height: 100vh;
+    width: 100%;
+    display: block;
+}
+
+.content {
+    margin-left: 270px;
+    width: calc(100% - 270px);
+    min-height: 100vh;
+    padding: 0;
+    max-width: none;
 }
 
 .profile-page {
     max-width: 1450px;
     margin: 0 auto;
+    padding: 28px 34px 50px;
 }
 
 .page-head {
@@ -823,6 +858,20 @@ body {
     }
 }
 
+@media(max-width: 900px) {
+    .content {
+        margin-left: 78px;
+        width: calc(100% - 78px);
+    }
+}
+
+@media(max-width: 520px) {
+    .content {
+        margin-left: 66px;
+        width: calc(100% - 66px);
+    }
+}
+
 @media(max-width: 1050px) {
     .stats {
         grid-template-columns: repeat(2, 1fr);
@@ -871,34 +920,7 @@ body {
 
 <div class="layout">
 
-    <aside class="sidebar">
-        <h3>AMARDAYAL</h3>
-
-        <a href="index.php">⌂ Dashboard</a>
-        <a class="active" href="patients.php">♙ Patients</a>
-
-        <?php if (in_array($role, ['Admin', 'Reception'], true)): ?>
-            <a href="reception.php">＋ Reception</a>
-        <?php endif; ?>
-
-        <a href="appointments.php">▣ Appointments</a>
-
-        <?php if (in_array($role, ['Admin', 'Doctor'], true)): ?>
-            <a href="doctor.php">♧ Doctor</a>
-        <?php endif; ?>
-
-        <?php if (in_array($role, ['Admin', 'Reception'], true)): ?>
-            <a href="billing.php">▤ Billing</a>
-        <?php endif; ?>
-
-        <?php if ($role === 'Admin'): ?>
-            <a href="reports.php">▥ Reports</a>
-            <a href="administration.php">⚙ Administration</a>
-        <?php endif; ?>
-
-        <a href="Messages.php">✉ Messages</a>
-        <a href="Logout.php">↪ Logout</a>
-    </aside>
+    <?php include __DIR__ . '/sidebar.php'; ?>
 
     <main class="content profile-page">
 
@@ -909,8 +931,8 @@ body {
             </div>
 
             <div class="head-actions">
-                <a class="action-btn" href="patients.php">← Patients</a>
-                <a class="action-btn" href="appointment.php?patient_id=<?= (int)$patientId ?>">＋ Appointment</a>
+                <a class="action-btn" href="<?= e(rtrim(BASE_URL, '/') . '/admin/patients.php') ?>">← Patients</a>
+                <a class="action-btn" href="<?= e(rtrim(BASE_URL, '/') . '/appointment.php?patient_id=' . (int)$patientId) ?>">＋ Appointment</a>
                 <button class="action-btn primary" type="button" onclick="window.print()">🖨 Print</button>
             </div>
         </div>
@@ -1039,6 +1061,7 @@ body {
 
                 <form method="post">
 
+                    <input type="hidden" name="csrf_token" value="<?= pp_e($csrfToken) ?>">
                     <input type="hidden" name="patient_id" value="<?= (int)$patientId ?>">
 
                     <div class="edit-grid">
@@ -1230,7 +1253,7 @@ body {
                                 </td>
                                 <td>
                                     <a class="table-link"
-                                       href="UpdateAppointment.php?id=<?= (int)($a['id'] ?? 0) ?>">
+                                       href="<?= e(rtrim(BASE_URL, '/') . '/admin/UpdateAppointment.php?id=' . (int)($a['id'] ?? 0)) ?>">
                                         Manage
                                     </a>
                                 </td>
@@ -1411,7 +1434,8 @@ body {
                                     <?php if (!empty($report['file_path'])): ?>
                                         <a class="table-link"
                                            target="_blank"
-                                           href="../<?= pp_e(ltrim((string)$report['file_path'], '/\\')) ?>">
+                                           rel="noopener"
+                                           href="<?= e(rtrim(BASE_URL, '/') . '/' . ltrim((string)$report['file_path'], '/\\')) ?>">
                                             Open
                                         </a>
                                     <?php else: ?>

@@ -44,6 +44,11 @@ if (
 $error = '';
 $username = '';
 
+if (empty($_SESSION['staff_login_csrf'])) {
+    $_SESSION['staff_login_csrf'] = bin2hex(random_bytes(32));
+}
+$loginCsrf = $_SESSION['staff_login_csrf'];
+
 /*
 |--------------------------------------------------------------------------
 | Login
@@ -51,10 +56,21 @@ $username = '';
 */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
+    $submittedCsrf = (string)($_POST['csrf_token'] ?? '');
+
+    if (
+        $submittedCsrf === '' ||
+        !hash_equals($_SESSION['staff_login_csrf'] ?? '', $submittedCsrf)
+    ) {
+        $error = 'Your login session has expired. Please refresh the page and try again.';
+    }
+
     $username = trim((string)($_POST['username'] ?? ''));
     $password = (string)($_POST['password'] ?? '');
 
-    if ($username === '' || $password === '') {
+    if ($error !== '') {
+        // Stop processing this request after a failed CSRF check.
+    } elseif ($username === '' || $password === '') {
 
         $error = 'Please enter your username and password.';
 
@@ -269,6 +285,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $_SESSION['staff_phone'] =
                                 (string)($user['phone'] ?? '');
 
+                            $_SESSION['staff_login_csrf'] = bin2hex(random_bytes(32));
+
                             /*
                             |--------------------------------------------------
                             | Redirect to the existing admin dashboard.
@@ -303,7 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <link
     rel="stylesheet"
-    href="../Styles/style.css"
+    href="<?= e(BASE_URL) ?>Styles/style.css"
 >
 
 <style>
@@ -339,7 +357,7 @@ body {
     align-items: center;
     justify-content: center;
 
-    padding: 30px;
+    padding: 110px 30px 30px;
 }
 
 .login-card {
@@ -534,7 +552,7 @@ body {
 @media (max-width: 520px) {
 
     .login-wrapper {
-        padding: 18px;
+        padding: 95px 18px 18px;
     }
 
     .login-card {
@@ -549,6 +567,8 @@ body {
 </head>
 
 <body>
+
+<?php nav(); ?>
 
 <div class="login-wrapper">
 
@@ -596,6 +616,12 @@ body {
             method="POST"
             autocomplete="off"
         >
+
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="<?= e($loginCsrf) ?>"
+            >
 
             <div class="form-group">
 

@@ -12,8 +12,16 @@
 
 $currentPage = basename($_SERVER['PHP_SELF']);
 
-$role = $_SESSION['staff_role'] ?? 'Admin';
-$name = $_SESSION['staff_name'] ?? 'System Administrator';
+$role = trim((string)($_SESSION['staff_role'] ?? 'Admin'));
+$name = trim((string)($_SESSION['staff_name'] ?? 'System Administrator'));
+
+if ($role === '') {
+    $role = 'Admin';
+}
+
+if ($name === '') {
+    $name = 'Staff';
+}
 
 function sidebarActive($page)
 {
@@ -444,10 +452,6 @@ function sidebarActive($page)
         padding: 14px 9px;
     }
 
-    body:has(.admin-sidebar) {
-        padding-left: 78px;
-    }
-
     .admin-sidebar .sidebar-brand {
         justify-content: center;
         padding: 7px 4px 18px;
@@ -518,10 +522,6 @@ function sidebarActive($page)
 @media (max-width: 520px) {
     .admin-sidebar {
         width: 66px;
-    }
-
-    body:has(.admin-sidebar) {
-        padding-left: 66px;
     }
 
     .admin-sidebar .sidebar-link {
@@ -669,7 +669,7 @@ function sidebarActive($page)
         <div class="sidebar-user">
 
             <div class="user-avatar">
-                <?= e(strtoupper(substr(trim($name), 0, 1))) ?>
+                <?= e(strtoupper(substr($name, 0, 1) ?: 'S')) ?>
             </div>
 
             <div class="user-info">

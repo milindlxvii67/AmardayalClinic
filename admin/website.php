@@ -7,6 +7,10 @@ require_staff(['Admin']);
 $msg = '';
 $error = '';
 
+if (empty($_SESSION['csrf_token'])) { $_SESSION['csrf_token'] = bin2hex(random_bytes(32)); }
+$csrfToken = $_SESSION['csrf_token'];
+function verify_website_csrf(): void { if (!hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'] ?? '')) { http_response_code(403); exit('Invalid request token.'); } }
+
 /* =========================================================
    GALLERY DATABASE SETUP
 ========================================================= */
@@ -50,6 +54,7 @@ foreach ($galleryColumns as $column => $definition) {
 ========================================================= */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_gallery'])) {
+    verify_website_csrf();
     $title = trim($_POST['gallery_title'] ?? '');
     $description = trim($_POST['gallery_description'] ?? '');
     $displayOrder = (int)($_POST['gallery_display_order'] ?? 0);
@@ -109,6 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_gallery'])) {
 ========================================================= */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_gallery'])) {
+    verify_website_csrf();
     $galleryId = (int)($_POST['gallery_id'] ?? 0);
     if ($galleryId > 0) {
         $stmt = $conn->prepare("SELECT image FROM clinic_gallery WHERE id = ? LIMIT 1");
@@ -144,6 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_gallery'])) {
 ========================================================= */
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_gallery'])) {
+    verify_website_csrf();
     $galleryId = (int)($_POST['gallery_id'] ?? 0);
     if ($galleryId > 0) {
         $stmt = $conn->prepare("UPDATE clinic_gallery SET is_active = IF(is_active=1,0,1) WHERE id=?");
@@ -166,6 +173,7 @@ if (
     &&
     isset($_POST['save_website'])
 ) {
+    verify_website_csrf();
 
     $keys = [
         'home_title',
@@ -223,6 +231,7 @@ if (
     &&
     isset($_POST['add_staff'])
 ) {
+    verify_website_csrf();
 
     $name =
         trim($_POST['name'] ?? '');
@@ -433,6 +442,7 @@ if (
     &&
     isset($_POST['delete_staff'])
 ) {
+    verify_website_csrf();
 
     $staffId =
         (int)($_POST['staff_id'] ?? 0);
@@ -584,7 +594,7 @@ if ($galleryResult) {
 
 <link
     rel="stylesheet"
-    href="../Styles/style.css"
+    href="<?= e(BASE_URL) ?>Styles/style.css"
 >
 
 
@@ -863,6 +873,7 @@ body {
             <form
                 method="post"
             >
+                <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
 
                 <div class="form-grid">
 
@@ -1008,6 +1019,7 @@ body {
             </div>
 
             <form method="post" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                 <div class="form-grid">
                     <div class="field">
                         <label>Image Title</label>
@@ -1035,7 +1047,7 @@ body {
                     <?php foreach ($galleryItems as $item): ?>
                         <article class="gallery-card">
                             <div class="gallery-image">
-                                <img src="../img/gallery/<?= e($item['image']) ?>" alt="<?= e($item['title'] ?: 'Clinic gallery image') ?>">
+                                <img src="<?= e(BASE_URL) ?>img/gallery/<?= e($item['image']) ?>" alt="<?= e($item['title'] ?: 'Clinic gallery image') ?>">
                             </div>
                             <div class="gallery-info">
                                 <h3><?= e($item['title'] ?: 'Clinic Gallery') ?></h3>
@@ -1046,8 +1058,8 @@ body {
                                     </span>
                                 </div>
                                 <div class="gallery-actions">
-                                    <form method="post"><input type="hidden" name="gallery_id" value="<?= (int)$item['id'] ?>"><button class="btn" type="submit" name="toggle_gallery"><?= (int)$item['is_active'] === 1 ? 'Hide' : 'Show' ?></button></form>
-                                    <form method="post" onsubmit="return confirm('Delete this gallery image?');"><input type="hidden" name="gallery_id" value="<?= (int)$item['id'] ?>"><button class="delete-btn" type="submit" name="delete_gallery">Delete</button></form>
+                                    <form method="post"><input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>"><input type="hidden" name="gallery_id" value="<?= (int)$item['id'] ?>"><button class="btn" type="submit" name="toggle_gallery"><?= (int)$item['is_active'] === 1 ? 'Hide' : 'Show' ?></button></form>
+                                    <form method="post" onsubmit="return confirm('Delete this gallery image?');"><input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>"><input type="hidden" name="gallery_id" value="<?= (int)$item['id'] ?>"><button class="delete-btn" type="submit" name="delete_gallery">Delete</button></form>
                                 </div>
                             </div>
                         </article>
@@ -1241,7 +1253,7 @@ body {
                                 ): ?>
 
                                     <img
-                                        src="../img/doctors/<?= e(
+                                        src="<?= e(BASE_URL) ?>img/doctors/<?= e(
                                             $member['photo']
                                         ) ?>"
                                         alt="<?= e(
@@ -1338,6 +1350,7 @@ body {
                                         "
                                     >
 
+                                        <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                                         <input
                                             type="hidden"
                                             name="staff_id"

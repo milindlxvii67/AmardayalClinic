@@ -7,25 +7,18 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_staff();
 
-// Shared medicine/service catalogue used by both billing.php and manage_medicines.php.
-$conn->query("
-    CREATE TABLE IF NOT EXISTS clinic_items (
-        id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(190) NOT NULL,
-        category VARCHAR(40) NOT NULL DEFAULT 'Medicine',
-        unit_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-        is_active TINYINT(1) NOT NULL DEFAULT 1,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uq_clinic_item_name_category (name, category)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
+// clinic_items must be created by the database setup/migration, not during page requests.
 
 $role = $_SESSION['staff_role'] ?? '';
 if (!in_array($role, ['Admin', 'Reception'], true)) {
     http_response_code(403);
     exit('Access denied.');
 }
+
+if (empty($_SESSION['billing_csrf'])) {
+    $_SESSION['billing_csrf'] = bin2hex(random_bytes(32));
+}
+$billingCsrf = $_SESSION['billing_csrf'];
 
 function bill_e($value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -39,12 +32,6 @@ if (!function_exists('e')) {
     }
 }
 
-function bill_has_column(mysqli $conn, string $table, string $column): bool {
-    $table = preg_replace('/[^a-zA-Z0-9_]/', '', $table);
-    $column = $conn->real_escape_string($column);
-    $r = $conn->query("SHOW COLUMNS FROM `$table` LIKE '$column'");
-    return $r && $r->num_rows > 0;
-}
 
 function bill_next_invoice(mysqli $conn): string {
     $prefix = 'INV-' . date('Ym') . '-';
@@ -77,12 +64,34 @@ $action = $_POST['action'] ?? '';
    SAVE BILL
    ============================================================ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_bill') {
+    $csrfToken = (string)($_POST['csrf_token'] ?? '');
+    if (!hash_equals((string)$_SESSION['billing_csrf'], $csrfToken)) {
+        $_SESSION['billing_flash'] = ['type'=>'error','message'=>'Your session expired. Please refresh the billing page and try again.'];
+        header('Location: billing.php');
+        exit;
+    }
+
     $patientId  = (int)($_POST['patient_id'] ?? 0);
     $visitId    = (int)($_POST['visit_id'] ?? 0);
     $category   = trim($_POST['category'] ?? 'Medicine');
     $payment    = trim($_POST['payment_mode'] ?? 'Cash');
     $discount   = (float)($_POST['discount'] ?? 0);
     $notes      = trim($_POST['notes'] ?? '');
+
+    $allowedCategories = ['Medicine','Therapy','Lab','Consultation','Miscellaneous'];
+    $allowedPaymentModes = ['Cash','UPI','Card','Online'];
+
+    if (!in_array($category, $allowedCategories, true)) {
+        $category = 'Miscellaneous';
+    }
+    if (!in_array($payment, $allowedPaymentModes, true)) {
+        $payment = 'Cash';
+    }
+    if (mb_strlen($notes) > 2000) {
+        $_SESSION['billing_flash'] = ['type'=>'error','message'=>'Billing notes are too long.'];
+        header('Location: billing.php?patient_id=' . $patientId . ($visitId ? '&visit_id=' . $visitId : ''));
+        exit;
+    }
 
     $names  = $_POST['item_name'] ?? [];
     $qtys   = $_POST['quantity'] ?? [];
@@ -95,6 +104,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_bill') {
         $_SESSION['billing_flash'] = ['type'=>'error','message'=>'Please select a patient.'];
         header('Location: billing.php');
         exit;
+    }
+
+    $patientCheck = $conn->prepare("SELECT id FROM patients WHERE id=? LIMIT 1");
+    if (!$patientCheck) {
+        $_SESSION['billing_flash'] = ['type'=>'error','message'=>'Unable to verify the selected patient.'];
+        header('Location: billing.php');
+        exit;
+    }
+    $patientCheck->bind_param('i', $patientId);
+    $patientCheck->execute();
+    $patientExists = (bool)$patientCheck->get_result()->fetch_assoc();
+    $patientCheck->close();
+
+    if (!$patientExists) {
+        $_SESSION['billing_flash'] = ['type'=>'error','message'=>'The selected patient could not be found.'];
+        header('Location: billing.php');
+        exit;
+    }
+
+    if ($visitId > 0) {
+        $visitCheck = $conn->prepare("SELECT id FROM visits WHERE id=? AND patient_id=? LIMIT 1");
+        if (!$visitCheck) {
+            $_SESSION['billing_flash'] = ['type'=>'error','message'=>'Unable to verify the selected visit.'];
+            header('Location: billing.php?patient_id=' . $patientId);
+            exit;
+        }
+        $visitCheck->bind_param('ii', $visitId, $patientId);
+        $visitCheck->execute();
+        $visitExists = (bool)$visitCheck->get_result()->fetch_assoc();
+        $visitCheck->close();
+
+        if (!$visitExists) {
+            $_SESSION['billing_flash'] = ['type'=>'error','message'=>'The selected visit does not belong to this patient.'];
+            header('Location: billing.php?patient_id=' . $patientId);
+            exit;
+        }
     }
 
     if (!is_array($names) || !is_array($qtys) || !is_array($prices)) {
@@ -110,6 +155,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_bill') {
 
         if ($name === '' && $qty === 0 && $price <= 0) {
             continue;
+        }
+
+        if (mb_strlen($name) > 190 || $qty > 10000 || $price > 10000000) {
+            $_SESSION['billing_flash'] = ['type'=>'error','message'=>'One or more bill items contain values outside the allowed limits.'];
+            header('Location: billing.php?patient_id=' . $patientId . ($visitId ? '&visit_id=' . $visitId : ''));
+            exit;
         }
 
         if ($name === '' || $qty <= 0 || $price < 0) {
@@ -205,6 +256,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_bill') {
             audit('CREATE_BILL', 'Invoice ' . $invoiceNo . ' generated for ' . money($net));
         }
 
+        $_SESSION['billing_csrf'] = bin2hex(random_bytes(32));
+
         $_SESSION['billing_flash'] = [
             'type'=>'success',
             'message'=>'Invoice ' . $invoiceNo . ' created successfully.'
@@ -215,9 +268,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'create_bill') {
 
     } catch (Throwable $e) {
         $conn->rollback();
+        error_log('Billing invoice creation failed: ' . $e->getMessage());
         $_SESSION['billing_flash'] = [
             'type'=>'error',
-            'message'=>'Invoice could not be created. ' . $e->getMessage()
+            'message'=>'Invoice could not be created. Please try again.'
         ];
         header('Location: billing.php?patient_id=' . $patientId);
         exit;
@@ -447,7 +501,7 @@ if ($catalogResult) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Billing & Pharmacy | AmarDayal Clinic</title>
-<link rel="stylesheet" href="../Styles/style.css">
+<link rel="stylesheet" href="<?= e(BASE_URL) ?>Styles/style.css">
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#f4f7fb;color:#10233f;font-family:"Segoe UI",Arial,sans-serif}
@@ -553,6 +607,7 @@ textarea{min-height:85px;resize:vertical}
 </div>
 
 <form method="post" action="billing.php" class="form-card" id="billForm">
+<input type="hidden" name="csrf_token" value="<?= e($billingCsrf) ?>">
 <input type="hidden" name="action" value="create_bill">
 <input type="hidden" name="patient_id" id="patientId" value="<?= (int)$selectedPatient ?>">
 <input type="hidden" name="visit_id" id="visitId" value="<?= (int)$selectedVisit ?>">
@@ -588,7 +643,7 @@ textarea{min-height:85px;resize:vertical}
 <div class="items-head">
 <div>Item / Service</div><div>Qty</div><div>Unit Price</div><div>Total</div><div></div>
 </div>
-<div class="catalogue-hint">Start typing a saved medicine/service and select it to fill in its price automatically. <a href="manage_medicines.php">Manage medicine catalogue</a>.</div>
+<div class="catalogue-hint">Start typing a saved medicine/service and select it to fill in its price automatically. <a href="<?= e(BASE_URL) ?>admin/manage_medicines.php">Manage medicine catalogue</a>.</div>
 <datalist id="medicineCatalogue">
 <?php foreach ($catalogItems as $catalogItem): ?>
 <option value="<?= bill_e($catalogItem['name']) ?>"><?= bill_e($catalogItem['category']) ?> — <?= money($catalogItem['price']) ?></option>
@@ -612,7 +667,7 @@ textarea{min-height:85px;resize:vertical}
 
 <div class="actions">
 <button class="btn primary" type="submit">✓ Create Invoice</button>
-<a class="btn secondary" href="billing.php">Clear</a>
+<a class="btn secondary" href="<?= e(BASE_URL) ?>admin/billing.php">Clear</a>
 </div>
 </form>
 </section>
@@ -683,7 +738,7 @@ textarea{min-height:85px;resize:vertical}
 
 <div class="actions print-hide">
 <button class="btn primary" onclick="window.print()">🖨 Print Invoice</button>
-<a class="btn secondary" href="billing.php">New Invoice</a>
+<a class="btn secondary" href="<?= e(BASE_URL) ?>admin/billing.php">New Invoice</a>
 </div>
 </section>
 <?php endif; ?>
@@ -807,7 +862,7 @@ function renderPatientResults(query) {
     patientResults.style.display = 'block';
     patientSearch.setAttribute('aria-expanded', 'true');
 
-    const url = `billing.php?ajax_patient_search=1&q=${encodeURIComponent(query)}`;
+    const url = `<?= e(BASE_URL) ?>admin/billing.php?ajax_patient_search=1&q=${encodeURIComponent(query)}`;
     fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' })
         .then(response => {
             if (!response.ok) throw new Error('HTTP ' + response.status);

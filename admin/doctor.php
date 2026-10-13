@@ -13,30 +13,6 @@ if (!in_array($role, ['Admin', 'Doctor'], true)) {
     exit('Access denied.');
 }
 
-function adc_doctor_has_column(mysqli $conn, string $table, string $column): bool
-{
-    $table  = preg_replace('/[^a-zA-Z0-9_]/', '', $table);
-    $column = $conn->real_escape_string($column);
-    $r = $conn->query("SHOW COLUMNS FROM `$table` LIKE '$column'");
-    return $r && $r->num_rows > 0;
-}
-
-function adc_doctor_ensure_appointment_columns(mysqli $conn): void
-{
-    $columns = [
-        'token_no'       => "INT NULL",
-        'checked_in_at'  => "DATETIME NULL",
-        'checked_in_by'  => "VARCHAR(120) NULL",
-        'visit_id'       => "INT NULL",
-    ];
-
-    foreach ($columns as $name => $definition) {
-        if (!adc_doctor_has_column($conn, 'appointments', $name)) {
-            @$conn->query("ALTER TABLE appointments ADD COLUMN `$name` $definition");
-        }
-    }
-}
-
 function doctor_e($value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -47,16 +23,28 @@ function doctor_flash(string $type, string $message): void
     $_SESSION['doctor_flash'] = ['type' => $type, 'message' => $message];
 }
 
-adc_doctor_ensure_appointment_columns($conn);
 
 $today = date('Y-m-d');
 $selectedVisitId = (int)($_GET['visit_id'] ?? $_POST['visit_id'] ?? 0);
 $action = $_POST['action'] ?? '';
 
+if (empty($_SESSION['doctor_csrf'])) {
+    $_SESSION['doctor_csrf'] = bin2hex(random_bytes(32));
+}
+$doctorCsrf = $_SESSION['doctor_csrf'];
+
 /* ============================================================
    SAVE CONSULTATION
    ============================================================ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'save_consultation') {
+    $submittedCsrf = (string)($_POST['csrf_token'] ?? '');
+
+    if (!hash_equals($doctorCsrf, $submittedCsrf)) {
+        doctor_flash('error', 'Your session expired. Please try again.');
+        header('Location: doctor.php');
+        exit;
+    }
+
     $visitId      = (int)($_POST['visit_id'] ?? 0);
     $diagnosis    = trim($_POST['diagnosis'] ?? '');
     $prescription = trim($_POST['prescription'] ?? '');
@@ -135,14 +123,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'save_consultation') {
     }
     $stmt->close();
 
-    /* Mark linked appointment completed. */
-    if (adc_doctor_has_column($conn, 'appointments', 'visit_id')) {
-        $stmt = $conn->prepare("UPDATE appointments SET status='Completed' WHERE visit_id=?");
-        if ($stmt) {
-            $stmt->bind_param('i', $visitId);
-            $stmt->execute();
-            $stmt->close();
-        }
+    $_SESSION['doctor_csrf'] = bin2hex(random_bytes(32));
+
+    /* Mark the linked appointment completed. */
+    $stmt = $conn->prepare("UPDATE appointments SET status='Completed' WHERE visit_id=?");
+    if ($stmt) {
+        $stmt->bind_param('i', $visitId);
+        $stmt->execute();
+        $stmt->close();
     }
 
     /* Fallback: same patient + same date if visit_id is not linked. */
@@ -353,7 +341,7 @@ $totalQueue = count($queue) + count($approved);
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Doctor Consultation | AmarDayal Clinic</title>
-<link rel="stylesheet" href="../Styles/style.css">
+<link rel="stylesheet" href="<?= e(rtrim(BASE_URL, '/') . '/Styles/style.css') ?>">
 <style>
 *{box-sizing:border-box}
 body{margin:0;padding:0!important;background:#f4f7fb;color:#10233f;font-family:"Segoe UI",Arial,sans-serif;overflow-x:hidden}
@@ -610,6 +598,7 @@ textarea:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.1)}
     <form method="post" action="doctor.php">
         <input type="hidden" name="action" value="save_consultation">
         <input type="hidden" name="visit_id" value="<?= (int)$visit['id'] ?>">
+        <input type="hidden" name="csrf_token" value="<?= e($doctorCsrf) ?>">
 
         <div class="section-title">Clinical Diagnosis <span style="color:#dc2626">*</span></div>
         <textarea name="diagnosis" required placeholder="Enter clinical diagnosis, findings and assessment..."><?= doctor_e($visit['diagnosis'] ?? '') ?></textarea>

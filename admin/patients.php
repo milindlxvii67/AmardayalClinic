@@ -83,19 +83,7 @@ $conditionsColumn = patient_first_existing_column(
     ]
 );
 
-/*
- * The current patients table has no medical-condition column.
- * Add a nullable column automatically so the edit form can save this field.
- * Existing patient records are preserved.
- */
-if (!$conditionsColumn) {
-    $addConditionsColumn = $conn->query(
-        "ALTER TABLE `patients` ADD COLUMN `chronic_conditions` TEXT NULL"
-    );
-    if ($addConditionsColumn || patient_column_exists($conn, 'chronic_conditions')) {
-        $conditionsColumn = 'chronic_conditions';
-    }
-}
+/* Schema changes belong in the database migration/setup, not in this request path. */
 $patientConditions = $conditionsColumn
     ? "`$conditionsColumn` AS `chronic_conditions`"
     : "NULL AS `chronic_conditions`";
@@ -109,18 +97,7 @@ $registeredDateColumn = patient_first_existing_column(
     ]
 );
 
-/*
- * If the table has no registration-date field, add a nullable one.
- * NULL is intentional for old records: do not invent a registration date.
- */
-if (!$registeredDateColumn) {
-    $addRegisteredDate = $conn->query(
-        "ALTER TABLE `patients` ADD COLUMN `registered_at` DATE NULL"
-    );
-    if ($addRegisteredDate || patient_column_exists($conn, 'registered_at')) {
-        $registeredDateColumn = 'registered_at';
-    }
-}
+/* Schema changes belong in the database migration/setup, not in this request path. */
 $patientCreatedAt = $registeredDateColumn
     ? "`$registeredDateColumn` AS `created_at`"
     : "NULL AS `created_at`";
@@ -201,15 +178,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $stmt = $conn->prepare($sql);
     
                         if (!$stmt) {
-                            $actionError = 'Unable to prepare patient update: ' . $conn->error;
+                            $actionError = 'Unable to update patient right now. Please try again.'; error_log('Patient update prepare failed: ' . $conn->error);
                         } else {
                             $bound = patient_bind_dynamic($stmt, $types, $values);
     
                             if (!$bound) {
-                                $actionError = 'Unable to bind patient update values: ' . $stmt->error;
+                                $actionError = 'Unable to update patient right now. Please try again.'; error_log('Patient update bind failed: ' . $stmt->error);
                                 $stmt->close();
                             } elseif (!$stmt->execute()) {
-                                $actionError = 'Unable to update patient: ' . $stmt->error;
+                                $actionError = 'Unable to update patient right now. Please try again.'; error_log('Patient update failed: ' . $stmt->error);
                                 $stmt->close();
                             } else {
                                 /*
@@ -222,11 +199,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
                                 $verify = $conn->prepare("SELECT id FROM patients WHERE id = ? LIMIT 1");
                                 if (!$verify) {
-                                    $actionError = 'The update ran, but verification failed: ' . $conn->error;
+                                    $actionError = 'The patient was updated, but verification could not be completed.'; error_log('Patient update verification prepare failed: ' . $conn->error);
                                 } else {
                                     $verify->bind_param('i', $targetId);
                                     if (!$verify->execute()) {
-                                        $actionError = 'The update ran, but verification failed: ' . $verify->error;
+                                        $actionError = 'The patient was updated, but verification could not be completed.'; error_log('Patient update verification failed: ' . $verify->error);
                                     } else {
                                         $verifyResult = $verify->get_result();
                                         if (!$verifyResult || !$verifyResult->fetch_assoc()) {
@@ -252,12 +229,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($action === 'delete') {
             $stmt = $conn->prepare("SELECT COUNT(*) AS total FROM appointments WHERE patient_id=?");
             if (!$stmt) {
-                $actionError = 'Unable to check appointment history: ' . $conn->error;
+                $actionError = 'Unable to check appointment history right now. Please try again.'; error_log('Patient appointment-history prepare failed: ' . $conn->error);
                 $patientId = $targetId;
             } else {
                 $stmt->bind_param('i', $targetId);
                 if (!$stmt->execute()) {
-                    $actionError = 'Unable to check appointment history: ' . $stmt->error;
+                    $actionError = 'Unable to check appointment history right now. Please try again.'; error_log('Patient appointment-history query failed: ' . $stmt->error);
                     $stmt->close();
                     $patientId = $targetId;
                 } else {
@@ -271,7 +248,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $stmt = $conn->prepare("DELETE FROM patients WHERE id=? LIMIT 1");
                     if (!$stmt) {
-                        $actionError = 'Unable to prepare patient deletion: ' . $conn->error;
+                        $actionError = 'Unable to delete patient right now. Please try again.'; error_log('Patient deletion prepare failed: ' . $conn->error);
                         $patientId = $targetId;
                     } else {
                         $stmt->bind_param('i', $targetId);
@@ -322,12 +299,12 @@ if ($patientId > 0) {
 
     $stmt = $conn->prepare($profileSql);
     if (!$stmt) {
-        $profileError = 'Unable to load patient profile: ' . $conn->error;
+        $profileError = 'Unable to load patient profile right now.'; error_log('Patient profile prepare failed: ' . $conn->error);
         $patientId = 0;
     } else {
         $stmt->bind_param('i', $patientId);
         if (!$stmt->execute()) {
-            $profileError = 'Unable to load patient profile: ' . $stmt->error;
+            $profileError = 'Unable to load patient profile right now.'; error_log('Patient profile query failed: ' . $stmt->error);
             $patientId = 0;
         } else {
             $result = $stmt->get_result();
@@ -406,11 +383,11 @@ if ($patient) {
         if ($stmt->execute()) {
             $appointments = $stmt->get_result();
         } else {
-            $profileError = 'Unable to load appointments: ' . $stmt->error;
+            $profileError = 'Unable to load appointments right now.'; error_log('Patient appointments query failed: ' . $stmt->error);
         }
         $stmt->close();
     } else {
-        $profileError = 'Unable to prepare appointments query: ' . $conn->error;
+        $profileError = 'Unable to load appointments right now.'; error_log('Patient appointments prepare failed: ' . $conn->error);
     }
 }
 
@@ -497,11 +474,11 @@ if (!$patient) {
     if ($values) {
         $stmt = $conn->prepare($sql);
         if (!$stmt) {
-            $profileError = 'Unable to prepare patient list: ' . $conn->error;
+            $profileError = 'Unable to load patients right now.'; error_log('Patient list prepare failed: ' . $conn->error);
         } else {
             patient_bind_dynamic($stmt, $types, $values);
             if (!$stmt->execute()) {
-                $profileError = 'Unable to load patients: ' . ($stmt->error ?: $conn->error);
+                $profileError = 'Unable to load patients right now.'; error_log('Patient list query failed: ' . ($stmt->error ?: $conn->error));
             } else {
                 $rows = $stmt->get_result();
             }
@@ -509,7 +486,7 @@ if (!$patient) {
         }
     } else {
         $rows = $conn->query($sql);
-        if (!$rows) $profileError = 'Unable to load patients: ' . $conn->error;
+        if (!$rows) $profileError = 'Unable to load patients right now.'; error_log('Patient list query failed: ' . $conn->error);
     }
 }
 
@@ -525,7 +502,7 @@ function status_class($status)
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title><?= $patient ? 'Patient Profile | AmarDayal Clinic' : 'Patient Directory | AmarDayal Clinic' ?></title>
-<link rel="stylesheet" href="../Styles/style.css">
+<link rel="stylesheet" href="<?= e(BASE_URL) ?>Styles/style.css">
 
 <style>
 /* ============================================================

@@ -48,34 +48,25 @@ function adm_get_users(mysqli $conn): array
 $success = '';
 $error = '';
 
+if (empty($_SESSION['administration_csrf'])) {
+    $_SESSION['administration_csrf'] = bin2hex(random_bytes(32));
+}
+$csrfToken = $_SESSION['administration_csrf'];
+
 /* -----------------------------------------------------------
-   Ensure audit / holiday tables exist
+   Database schema is managed by the one-time migration/setup SQL.
+   This page must never create or alter tables during a request.
 ----------------------------------------------------------- */
-$conn->query("
-    CREATE TABLE IF NOT EXISTS audit_log (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(120) NULL,
-        action VARCHAR(120) NULL,
-        details TEXT NULL,
-        timestamp DATETIME NULL,
-        INDEX idx_audit_timestamp (timestamp)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
-
-$conn->query("
-    CREATE TABLE IF NOT EXISTS clinic_holidays (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        holiday_date DATE NOT NULL UNIQUE,
-        holiday_name VARCHAR(180) NOT NULL,
-        tradition VARCHAR(80) DEFAULT 'Clinic Holiday',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
-
 /* -----------------------------------------------------------
    POST actions
 ----------------------------------------------------------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    $postedCsrf = (string)($_POST['csrf_token'] ?? '');
+
+    if (!hash_equals($csrfToken, $postedCsrf)) {
+        $error = 'Security validation failed. Please refresh the page and try again.';
+    } else {
 
     $action = $_POST['action'] ?? '';
 
@@ -144,7 +135,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 );
                             }
                         } else {
-                            $error = 'Could not create the staff account: ' . $stmt->error;
+                            $error = 'Could not create the staff account.';
+                            error_log('Administration add staff failed: ' . $stmt->error);
                         }
 
                         $stmt->close();
@@ -290,7 +282,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $holidayName = trim($_POST['holiday_name'] ?? '');
         $tradition = trim($_POST['tradition'] ?? 'Clinic Holiday');
 
-        $dateObject = DateTime::createFromFormat('Y-m-d', $holidayDate);
+        $dateObject = DateTime::createFromFormat('!Y-m-d', $holidayDate);
 
         if (
             !$dateObject ||
@@ -466,6 +458,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+    if ($success !== '') {
+        $_SESSION['administration_csrf'] = bin2hex(random_bytes(32));
+        $csrfToken = $_SESSION['administration_csrf'];
+    }
+}
+
 /* -----------------------------------------------------------
    Data for page
 ----------------------------------------------------------- */
@@ -524,7 +522,7 @@ foreach ($users as $u) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Administration | AmarDayal Clinic</title>
-<link rel="stylesheet" href="../Styles/style.css">
+<link rel="stylesheet" href="<?= adm_e(rtrim(BASE_URL, '/') . '/Styles/style.css') ?>">
 
 <style>
 *{box-sizing:border-box}
@@ -955,6 +953,8 @@ th{
 
             <input type="hidden" name="action" value="add_staff">
 
+            <input type="hidden" name="csrf_token" value="<?= adm_e($csrfToken) ?>">
+
             <div class="form-grid">
 
                 <div class="field">
@@ -1026,6 +1026,8 @@ th{
         <form method="post">
 
             <input type="hidden" name="action" value="change_my_password">
+
+            <input type="hidden" name="csrf_token" value="<?= adm_e($csrfToken) ?>">
 
             <div class="field" style="margin-bottom:13px">
                 <label>Current Password</label>
@@ -1135,6 +1137,8 @@ th{
                             onsubmit="return confirm('Change this account status?');"
                         >
                             <input type="hidden" name="action" value="toggle_staff">
+
+            <input type="hidden" name="csrf_token" value="<?= adm_e($csrfToken) ?>">
                             <input type="hidden" name="user_id" value="<?= (int)$user['id'] ?>">
 
                             <button class="btn btn-secondary" type="submit">
@@ -1149,6 +1153,8 @@ th{
                             onsubmit="return confirm('Reset this staff member password?');"
                         >
                             <input type="hidden" name="action" value="reset_staff_password">
+
+            <input type="hidden" name="csrf_token" value="<?= adm_e($csrfToken) ?>">
                             <input type="hidden" name="user_id" value="<?= (int)$user['id'] ?>">
 
                             <input
@@ -1200,6 +1206,8 @@ th{
         <form method="post">
 
             <input type="hidden" name="action" value="add_holiday">
+
+            <input type="hidden" name="csrf_token" value="<?= adm_e($csrfToken) ?>">
 
             <div class="form-grid">
 
@@ -1283,6 +1291,8 @@ th{
                                 onsubmit="return confirm('Remove this holiday?');"
                             >
                                 <input type="hidden" name="action" value="delete_holiday">
+
+            <input type="hidden" name="csrf_token" value="<?= adm_e($csrfToken) ?>">
                                 <input type="hidden" name="holiday_id" value="<?= (int)$holiday['id'] ?>">
 
                                 <button class="btn btn-danger" type="submit">
@@ -1372,7 +1382,7 @@ th{
             <small>Latest 100 recorded administrative activities.</small>
         </div>
 
-        <a class="btn btn-secondary" href="administration.php">
+        <a class="btn btn-secondary" href="<?= adm_e(rtrim(BASE_URL, '/') . '/admin/administration.php') ?>">
             ↻ Refresh
         </a>
 

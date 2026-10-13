@@ -2,10 +2,12 @@
 require_once 'config.php';
 
 $rows = $conn->query("
-    SELECT *
+    SELECT id, filename, title, caption
     FROM clinic_gallery
     ORDER BY id DESC
 ");
+
+$queryError = !$rows;
 ?>
 <!doctype html>
 <html lang="en">
@@ -15,7 +17,7 @@ $rows = $conn->query("
 
     <title>Clinic Gallery | AmarDayal Clinic</title>
 
-    <link rel="stylesheet" href="Styles/style.css">
+    <link rel="stylesheet" href="<?= e(BASE_URL) ?>Styles/style.css">
 
     <style>
         .gallery-page {
@@ -100,6 +102,17 @@ $rows = $conn->query("
             margin-bottom: 15px;
         }
 
+        .gallery-error {
+            max-width: 700px;
+            margin: 40px auto;
+            text-align: center;
+            padding: 25px;
+            background: #fff;
+            border: 1px solid #fecaca;
+            border-radius: 20px;
+            color: #991b1b;
+        }
+
         @media (max-width: 600px) {
             .gallery-page {
                 padding: 25px 15px 50px;
@@ -121,44 +134,64 @@ $rows = $conn->query("
 <?php nav(); ?>
 
 <main class="gallery-page">
-
     <div class="gallery-container">
 
         <div class="gallery-heading">
             <h1>Clinic Gallery</h1>
-            <p>
-                Explore AmarDayal Clinic and our patient care environment.
-            </p>
+            <p>Explore AmarDayal Clinic and our patient care environment.</p>
         </div>
 
-        <?php if ($rows && $rows->num_rows > 0): ?>
+        <?php if ($queryError): ?>
+
+            <div class="gallery-error">
+                <h2>Gallery temporarily unavailable</h2>
+                <p>Please try again later.</p>
+            </div>
+
+        <?php elseif ($rows->num_rows > 0): ?>
 
             <div class="gallery">
 
                 <?php while ($r = $rows->fetch_assoc()): ?>
 
+                    <?php
+                    /*
+                     * Only allow a filename, not a path.
+                     * This prevents values such as ../../config.php
+                     * from being used as an image URL.
+                     */
+                    $filename = basename((string)($r['filename'] ?? ''));
+
+                    $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+                    $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+                    $imageUrl = '';
+                    if (
+                        $filename !== '' &&
+                        in_array($extension, $allowedExtensions, true)
+                    ) {
+                        $imageUrl = BASE_URL . 'img/' . rawurlencode($filename);
+                    }
+                    ?>
+
                     <article class="gallery-card">
 
-                        <img
-                            class="gallery-image"
-                            src="img/<?= e($r['filename']) ?>"
-                            alt="<?= e($r['title']) ?>"
-                            loading="lazy"
-                            onerror="this.style.display='none';"
-                        >
+                        <?php if ($imageUrl !== ''): ?>
+                            <img
+                                class="gallery-image"
+                                src="<?= e($imageUrl) ?>"
+                                alt="<?= e($r['title'] ?? 'Clinic gallery image') ?>"
+                                loading="lazy"
+                                onerror="this.style.display='none';"
+                            >
+                        <?php endif; ?>
 
                         <div class="gallery-content">
-
-                            <h3>
-                                <?= e($r['title']) ?>
-                            </h3>
+                            <h3><?= e($r['title'] ?? '') ?></h3>
 
                             <?php if (!empty($r['caption'])): ?>
-                                <p>
-                                    <?= e($r['caption']) ?>
-                                </p>
+                                <p><?= e($r['caption']) ?></p>
                             <?php endif; ?>
-
                         </div>
 
                     </article>
@@ -170,7 +203,6 @@ $rows = $conn->query("
         <?php else: ?>
 
             <div class="empty-gallery">
-
                 <div class="icon">🖼️</div>
 
                 <h2>No Gallery Images</h2>
@@ -179,13 +211,11 @@ $rows = $conn->query("
                     Clinic gallery images will appear here once they are
                     added by the administrator.
                 </p>
-
             </div>
 
         <?php endif; ?>
 
     </div>
-
 </main>
 
 <footer class="footer">

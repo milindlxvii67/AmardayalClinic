@@ -6,6 +6,11 @@ $role = $_SESSION['staff_role'] ?? '';
 $staffUsername = $_SESSION['staff_username'] ?? '';
 $staffName = $_SESSION['staff_name'] ?? $staffUsername ?: 'Staff';
 
+if (empty($_SESSION['messages_csrf'])) {
+    $_SESSION['messages_csrf'] = bin2hex(random_bytes(32));
+}
+$csrfToken = $_SESSION['messages_csrf'];
+
 function msg_e($value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -31,30 +36,12 @@ function msg_e($value): string
 |--------------------------------------------------------------------------
 */
 
-$conn->query("
-    CREATE TABLE IF NOT EXISTS messages (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        patient_id INT NULL,
-        appointment_id INT NULL,
-        sender_name VARCHAR(150) NOT NULL,
-        sender_phone VARCHAR(30) NULL,
-        sender_email VARCHAR(190) NULL,
-        subject VARCHAR(220) NOT NULL,
-        message TEXT NOT NULL,
-        message_type VARCHAR(50) DEFAULT 'Enquiry',
-        priority ENUM('Normal','High','Urgent') DEFAULT 'Normal',
-        status ENUM('Unread','Read','Replied','Archived') DEFAULT 'Unread',
-        reply TEXT NULL,
-        replied_by VARCHAR(120) NULL,
-        replied_at DATETIME NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_messages_status (status),
-        INDEX idx_messages_created (created_at),
-        INDEX idx_messages_patient (patient_id),
-        INDEX idx_messages_appointment (appointment_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
+/*
+ * The messages table must be created once through the project's database
+ * migration/setup SQL. Do not modify the database schema on page load.
+ */
+
+
 
 $success = '';
 $error = '';
@@ -64,7 +51,16 @@ $error = '';
 ------------------------------------------------------------------ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    $action = $_POST['action'] ?? '';
+    $postedCsrf = (string)($_POST['csrf_token'] ?? '');
+
+    if (
+        $postedCsrf === '' ||
+        !hash_equals($_SESSION['messages_csrf'], $postedCsrf)
+    ) {
+        $error = 'Invalid security token. Please refresh the page and try again.';
+    } else {
+
+        $action = $_POST['action'] ?? '';
 
     /* Mark read */
     if ($action === 'mark_read') {
@@ -278,7 +274,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $messageType = trim($_POST['message_type'] ?? 'Internal');
         $priority = trim($_POST['priority'] ?? 'Normal');
 
-        if ($senderName === '') {
+        if (mb_strlen($senderName) > 150) {
+            $error = 'Sender name is too long.';
+        } elseif ($senderPhone !== '' && mb_strlen($senderPhone) > 30) {
+            $error = 'Phone number is too long.';
+        } elseif ($senderEmail !== '' && (mb_strlen($senderEmail) > 190 || !filter_var($senderEmail, FILTER_VALIDATE_EMAIL))) {
+            $error = 'Please enter a valid email address.';
+        } elseif (mb_strlen($subject) > 220) {
+            $error = 'Subject is too long.';
+        } elseif (mb_strlen($message) > 10000) {
+            $error = 'Message is too long.';
+        } elseif ($senderName === '') {
             $error = 'Please enter the sender name.';
         } elseif ($subject === '') {
             $error = 'Please enter a subject.';
@@ -326,6 +332,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $success !== '') {
+    $_SESSION['messages_csrf'] = bin2hex(random_bytes(32));
+    $csrfToken = $_SESSION['messages_csrf'];
 }
 
 /* ------------------------------------------------------------------
@@ -482,22 +494,8 @@ if ($selectedId > 0) {
         $stmt->close();
     }
 
-    if (
-        $selectedMessage &&
-        $selectedMessage['status'] === 'Unread'
-    ) {
-        $stmt = $conn->prepare(
-            "UPDATE messages SET status = 'Read' WHERE id = ?"
-        );
-
-        if ($stmt) {
-            $stmt->bind_param('i', $selectedId);
-            $stmt->execute();
-            $stmt->close();
-
-            $selectedMessage['status'] = 'Read';
-        }
-    }
+    /* Reading a message must not mutate data through GET. Use a POST action
+       for status changes so links remain side-effect free. */
 }
 ?>
 <!doctype html>
@@ -506,7 +504,7 @@ if ($selectedId > 0) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Messages | AmarDayal Clinic</title>
-<link rel="stylesheet" href="../Styles/style.css">
+<link rel="stylesheet" href="<?= msg_e(BASE_URL) ?>Styles/style.css">
 
 <style>
 *{box-sizing:border-box}
@@ -1017,37 +1015,37 @@ input:focus,select:focus,textarea:focus{
 
         <a
             class="filter <?= $filter === 'all' ? 'active' : '' ?>"
-            href="Messages.php"
+            href="<?= msg_e(BASE_URL) ?>admin/Messages.php"
         >All</a>
 
         <a
             class="filter <?= $filter === 'unread' ? 'active' : '' ?>"
-            href="Messages.php?filter=unread"
+            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=unread"
         >Unread</a>
 
         <a
             class="filter <?= $filter === 'read' ? 'active' : '' ?>"
-            href="Messages.php?filter=read"
+            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=read"
         >Read</a>
 
         <a
             class="filter <?= $filter === 'replied' ? 'active' : '' ?>"
-            href="Messages.php?filter=replied"
+            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=replied"
         >Replied</a>
 
         <a
             class="filter <?= $filter === 'high' ? 'active' : '' ?>"
-            href="Messages.php?filter=high"
+            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=high"
         >High</a>
 
         <a
             class="filter <?= $filter === 'urgent' ? 'active' : '' ?>"
-            href="Messages.php?filter=urgent"
+            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=urgent"
         >Urgent</a>
 
         <a
             class="filter <?= $filter === 'archived' ? 'active' : '' ?>"
-            href="Messages.php?filter=archived"
+            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=archived"
         >Archived</a>
 
     </div>
@@ -1086,7 +1084,7 @@ input:focus,select:focus,textarea:focus{
             <small><?= number_format(count($messages)) ?> message(s) shown</small>
         </div>
 
-        <a class="btn secondary" href="Messages.php">
+        <a class="btn secondary" href="<?= msg_e(BASE_URL) ?>admin/Messages.php">
             ↻ Refresh
         </a>
 
@@ -1120,7 +1118,7 @@ input:focus,select:focus,textarea:focus{
 
             <a
                 class="message-item <?= $message['status'] === 'Unread' ? 'unread' : '' ?>"
-                href="Messages.php?id=<?= (int)$message['id'] ?>&filter=<?= urlencode($filter) ?>"
+                href="<?= msg_e(BASE_URL) ?>admin/Messages.php?id=<?= (int)$message['id'] ?>&filter=<?= urlencode($filter) ?>"
             >
 
                 <div class="message-top">
@@ -1253,6 +1251,8 @@ input:focus,select:focus,textarea:focus{
 
             <form method="post">
 
+                <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
+
                 <input type="hidden" name="action" value="reply">
                 <input
                     type="hidden"
@@ -1267,6 +1267,7 @@ input:focus,select:focus,textarea:focus{
                 <textarea
                     name="reply"
                     placeholder="Write the clinic's response..."
+                    maxlength="10000"
                     required
                 ><?= msg_e($selectedMessage['reply'] ?? '') ?></textarea>
 
@@ -1275,6 +1276,19 @@ input:focus,select:focus,textarea:focus{
                     <button class="btn green" type="submit">
                         ✓ Save Reply
                     </button>
+
+                    <?php if ($selectedMessage['status'] === 'Unread'): ?>
+                        <button
+                            class="btn secondary"
+                            type="submit"
+                            formaction="<?= msg_e(BASE_URL) ?>admin/Messages.php"
+                            name="action"
+                            value="mark_read"
+                        >
+                            Mark Read
+                        </button>
+                        <input type="hidden" name="message_id" value="<?= (int)$selectedMessage['id'] ?>">
+                    <?php endif; ?>
 
 
 
@@ -1287,6 +1301,8 @@ input:focus,select:focus,textarea:focus{
         <div style="margin-top:15px">
 
             <form method="post" style="display:inline">
+
+                <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
 
                 <input type="hidden" name="action" value="priority">
                 <input type="hidden" name="message_id" value="<?= (int)$selectedMessage['id'] ?>">
@@ -1314,6 +1330,8 @@ input:focus,select:focus,textarea:focus{
                 <form method="post" style="display:inline;margin-left:5px"
                       onsubmit="return confirm('Archive this message?');">
 
+                    <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
+
                     <input type="hidden" name="action" value="archive">
                     <input type="hidden" name="message_id" value="<?= (int)$selectedMessage['id'] ?>">
 
@@ -1326,6 +1344,8 @@ input:focus,select:focus,textarea:focus{
             <?php else: ?>
 
                 <form method="post" style="display:inline;margin-left:5px">
+
+                    <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
 
                     <input type="hidden" name="action" value="restore">
                     <input type="hidden" name="message_id" value="<?= (int)$selectedMessage['id'] ?>">
@@ -1342,6 +1362,8 @@ input:focus,select:focus,textarea:focus{
 
                 <form method="post" style="display:inline;margin-left:5px"
                       onsubmit="return confirm('Permanently delete this message?');">
+
+                    <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
 
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="message_id" value="<?= (int)$selectedMessage['id'] ?>">
@@ -1372,6 +1394,8 @@ input:focus,select:focus,textarea:focus{
     <div class="side-section">
 
         <form method="post">
+
+                <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
 
             <input type="hidden" name="action" value="add_message">
 
@@ -1451,6 +1475,7 @@ input:focus,select:focus,textarea:focus{
                 <textarea
                     name="message"
                     placeholder="Write the message..."
+                    maxlength="10000"
                     required
                 ></textarea>
             </div>

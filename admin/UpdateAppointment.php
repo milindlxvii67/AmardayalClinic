@@ -13,6 +13,11 @@ if (!in_array($role, ['Admin', 'Reception', 'Doctor'], true)) {
     exit('Access denied.');
 }
 
+if (empty($_SESSION['ua_csrf'])) {
+    $_SESSION['ua_csrf'] = bin2hex(random_bytes(32));
+}
+$uaCsrf = $_SESSION['ua_csrf'];
+
 function ua_e($value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -55,7 +60,8 @@ $stmt = $conn->prepare("
 ");
 
 if (!$stmt) {
-    exit('Unable to load appointment: ' . ua_e($conn->error));
+    error_log('UpdateAppointment load prepare failed: ' . $conn->error);
+    exit('Unable to load the appointment right now.');
 }
 
 $stmt->bind_param('i', $id);
@@ -76,12 +82,16 @@ $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
+    if (!isset($_POST['csrf_token']) || !hash_equals($uaCsrf, (string)$_POST['csrf_token'])) {
+        $error = 'Invalid or expired form request. Please try again.';
+    }
+
     $action = $_POST['action'] ?? 'save';
 
     /* --------------------------------------------------------
        STATUS ACTIONS
        -------------------------------------------------------- */
-    if (in_array($action, ['approve', 'reject', 'complete'], true)) {
+    if ($error === '' && in_array($action, ['approve', 'reject', 'complete'], true)) {
 
         $newStatus = match ($action) {
             'approve'  => 'Approved',
@@ -107,13 +117,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ");
 
             if (!$stmt) {
-                $error = 'Unable to update appointment status: ' . $conn->error;
+                $error = 'Unable to update appointment status right now.';
+                error_log('UpdateAppointment status prepare failed: ' . $conn->error);
             } else {
 
                 $stmt->bind_param('si', $newStatus, $id);
 
                 if (!$stmt->execute()) {
-                    $error = 'Unable to update appointment status: ' . $stmt->error;
+                    $error = 'Unable to update appointment status right now.';
+                    error_log('UpdateAppointment status execute failed: ' . $stmt->error);
                 } else {
 
                     if (function_exists('audit')) {
@@ -130,7 +142,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $oldStatus . ' to ' . $newStatus . '.'
                     );
 
-                    header('Location: UpdateAppointment.php?id=' . $id);
+                    $_SESSION['ua_csrf'] = bin2hex(random_bytes(32));
+
+                    header('Location: ' . BASE_URL . 'admin/UpdateAppointment.php?id=' . $id);
                     exit;
                 }
 
@@ -272,7 +286,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ");
 
             if (!$stmt) {
-                $error = 'Unable to prepare appointment update: ' . $conn->error;
+                $error = 'Unable to save appointment right now.';
+                error_log('UpdateAppointment save prepare failed: ' . $conn->error);
             } else {
 
                 $stmt->bind_param(
@@ -296,7 +311,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 );
 
                 if (!$stmt->execute()) {
-                    $error = 'Unable to save appointment: ' . $stmt->error;
+                    $error = 'Unable to save appointment right now.';
+                    error_log('UpdateAppointment save execute failed: ' . $stmt->error);
                 } else {
 
                     if (function_exists('audit')) {
@@ -313,9 +329,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'Appointment #' . $id . ' has been updated successfully.'
                     );
 
+                    $_SESSION['ua_csrf'] = bin2hex(random_bytes(32));
+
                     $stmt->close();
 
-                    header('Location: UpdateAppointment.php?id=' . $id);
+                    header('Location: ' . BASE_URL . 'admin/UpdateAppointment.php?id=' . $id);
                     exit;
                 }
 
@@ -770,7 +788,7 @@ body{
 
 <main class="content">
 
-<a class="back" href="appointments.php">← Back to Appointments</a>
+<a class="back" href="<?= e(BASE_URL) ?>admin/appointments.php">← Back to Appointments</a>
 
 <header class="page-head">
 
@@ -808,10 +826,11 @@ body{
 
     <div class="card-body">
 
-        <form method="post" action="UpdateAppointment.php?id=<?= (int)$id ?>">
+        <form method="post" action="<?= e(BASE_URL) ?>admin/UpdateAppointment.php?id=<?= (int)$id ?>">
 
             <input type="hidden" name="id" value="<?= (int)$id ?>">
             <input type="hidden" name="action" value="save">
+            <input type="hidden" name="csrf_token" value="<?= ua_e($uaCsrf) ?>">
 
             <div class="form-grid">
 
@@ -982,7 +1001,7 @@ body{
 
             <div class="form-actions">
 
-                <a class="btn btn-light" href="appointments.php">
+                <a class="btn btn-light" href="<?= e(BASE_URL) ?>admin/appointments.php">
                     Cancel
                 </a>
 
@@ -1123,6 +1142,7 @@ body{
                     <form method="post">
                         <input type="hidden" name="id" value="<?= (int)$id ?>">
                         <input type="hidden" name="action" value="approve">
+            <input type="hidden" name="csrf_token" value="<?= ua_e($uaCsrf) ?>">
 
                         <button class="btn btn-green" type="submit">
                             ✓ Approve
@@ -1132,6 +1152,7 @@ body{
                     <form method="post">
                         <input type="hidden" name="id" value="<?= (int)$id ?>">
                         <input type="hidden" name="action" value="reject">
+            <input type="hidden" name="csrf_token" value="<?= ua_e($uaCsrf) ?>">
 
                         <button class="btn btn-red" type="submit">
                             ✕ Reject
@@ -1145,6 +1166,7 @@ body{
                     <form method="post">
                         <input type="hidden" name="id" value="<?= (int)$id ?>">
                         <input type="hidden" name="action" value="complete">
+            <input type="hidden" name="csrf_token" value="<?= ua_e($uaCsrf) ?>">
 
                         <button class="btn btn-orange" type="submit">
                             ✓ Complete
@@ -1155,7 +1177,7 @@ body{
 
                 <?php if ($appointment['status'] === 'Approved' && empty($appointment['visit_id']) && in_array($role, ['Admin','Reception'], true)): ?>
 
-                    <a class="btn btn-primary" href="reception.php">
+                    <a class="btn btn-primary" href="<?= e(BASE_URL) ?>admin/reception.php">
                         → Check In
                     </a>
 
@@ -1165,7 +1187,7 @@ body{
 
                     <a
                         class="btn btn-light"
-                        href="doctor.php?visit_id=<?= (int)$appointment['visit_id'] ?>"
+                        href="<?= e(BASE_URL) ?>admin/doctor.php?visit_id=<?= (int)$appointment['visit_id'] ?>"
                     >
                         Open Doctor Visit
                     </a>

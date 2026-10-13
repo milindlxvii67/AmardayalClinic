@@ -2,8 +2,13 @@
 
 declare(strict_types=1);
 
-ini_set('display_errors', '1');
-ini_set('display_startup_errors', '1');
+/*
+ * Do not expose PHP errors to website visitors in production.
+ * Set APP_DEBUG=1 in the environment when local debugging is required.
+ */
+$debug = getenv('APP_DEBUG') === '1';
+ini_set('display_errors', $debug ? '1' : '0');
+ini_set('display_startup_errors', $debug ? '1' : '0');
 error_reporting(E_ALL);
 
 require_once __DIR__ . '/../config.php';
@@ -100,7 +105,7 @@ if ($r) while ($row=$r->fetch_assoc()) $records[]=$row;
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Staff Dashboard | AmarDayal Clinic</title>
-<link rel="stylesheet" href="../Styles/style.css">
+<link rel="stylesheet" href="<?= e(rtrim(BASE_URL, '/') . '/Styles/style.css') ?>">
 <style>
 :root{--bg:#f5f8fc;--card:#fff;--text:#10233f;--muted:#718096;--line:#e5ebf2;--blue:#2563eb;--blueSoft:#edf4ff;--green:#059669;--greenSoft:#eafaf4;--orange:#d97706;--orangeSoft:#fff7e8;--red:#dc2626;--redSoft:#fff0f0}
 *{box-sizing:border-box}
@@ -176,7 +181,7 @@ body{margin:0;padding:0 !important;background:var(--bg);overflow-x:hidden}
 <p><?=date('l, d F Y')?> • Today's clinic operations at a glance.</p>
 </div>
 <div class="actions">
-<?php if(in_array($role,['Admin','Reception'],true)): ?><a class="btn primary" href="../appointment.php">＋ New Appointment</a><?php endif; ?>
+<?php if(in_array($role,['Admin','Reception'],true)): ?><a class="btn primary" href="<?= e(rtrim(BASE_URL, '/') . '/appointment.php') ?>">＋ New Appointment</a><?php endif; ?>
 <a class="btn" href="appointments.php">View Appointments →</a>
 </div>
 </header>
