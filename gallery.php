@@ -170,7 +170,7 @@ $queryError = !$rows;
                         $filename !== '' &&
                         in_array($extension, $allowedExtensions, true)
                     ) {
-                        $imageUrl = BASE_URL . 'img/' . rawurlencode($filename);
+                        $imageUrl = BASE_URL . 'img/gallery/' . rawurlencode($filename);
                     }
                     ?>
 
