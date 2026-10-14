@@ -6,11 +6,6 @@ $role = $_SESSION['staff_role'] ?? '';
 $staffUsername = $_SESSION['staff_username'] ?? '';
 $staffName = $_SESSION['staff_name'] ?? $staffUsername ?: 'Staff';
 
-if (empty($_SESSION['messages_csrf'])) {
-    $_SESSION['messages_csrf'] = bin2hex(random_bytes(32));
-}
-$csrfToken = $_SESSION['messages_csrf'];
-
 function msg_e($value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -20,28 +15,34 @@ function msg_e($value): string
 |--------------------------------------------------------------------------
 | Messages / enquiries
 |--------------------------------------------------------------------------
-| The original application already exposes Messages.php in the staff
-| navigation, but the available project sources do not provide a verified
-| MySQL messages-table schema. This page therefore creates a small,
-| self-contained messages table if it does not exist.
-|
-| It supports:
-| - website/contact enquiries
-| - appointment-related enquiries
-| - manual staff notes/messages
-| - read/unread status
-| - priority
-| - staff reply
-| - archive/delete
+| Uses the existing online `messages` table.
+| The live schema contains:
+| id, name, email, phone, message, date, status, priority
 |--------------------------------------------------------------------------
 */
 
-/*
- * The messages table must be created once through the project's database
- * migration/setup SQL. Do not modify the database schema on page load.
- */
+if (empty($_SESSION['messages_csrf'])) {
+    $_SESSION['messages_csrf'] = bin2hex(random_bytes(32));
+}
 
+function messages_csrf(): string
+{
+    return $_SESSION['messages_csrf'];
+}
 
+function verify_messages_csrf(): void
+{
+    $token = (string)($_POST['csrf_token'] ?? '');
+
+    if (
+        $token === '' ||
+        empty($_SESSION['messages_csrf']) ||
+        !hash_equals($_SESSION['messages_csrf'], $token)
+    ) {
+        http_response_code(403);
+        exit('Invalid security token.');
+    }
+}
 
 $success = '';
 $error = '';
@@ -51,16 +52,8 @@ $error = '';
 ------------------------------------------------------------------ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    $postedCsrf = (string)($_POST['csrf_token'] ?? '');
-
-    if (
-        $postedCsrf === '' ||
-        !hash_equals($_SESSION['messages_csrf'], $postedCsrf)
-    ) {
-        $error = 'Invalid security token. Please refresh the page and try again.';
-    } else {
-
-        $action = $_POST['action'] ?? '';
+    verify_messages_csrf();
+    $action = $_POST['action'] ?? '';
 
     /* Mark read */
     if ($action === 'mark_read') {
@@ -104,40 +97,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Invalid message.';
         } elseif ($reply === '') {
             $error = 'Please enter a reply.';
+        } elseif (mb_strlen($reply) > 10000) {
+            $error = 'Reply is too long.';
         } else {
 
             $stmt = $conn->prepare(
-                "UPDATE messages
-                 SET status = 'Replied',
-                     reply = ?,
-                     replied_by = ?,
-                     replied_at = NOW()
-                 WHERE id = ?"
+                "SELECT name, email, phone, subject, priority
+                 FROM messages
+                 WHERE id = ?
+                 LIMIT 1"
             );
 
+            $original = null;
+
             if ($stmt) {
-                $stmt->bind_param(
-                    'ssi',
-                    $reply,
-                    $staffName,
-                    $messageId
+                $stmt->bind_param('i', $messageId);
+                $stmt->execute();
+                $original = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+            }
+
+            if (!$original) {
+                $error = 'Message not found.';
+            } else {
+
+                /*
+                 * The live messages table has no reply/replied_by/replied_at
+                 * columns. Store the clinic reply as a new message and mark
+                 * the original message as Replied.
+                 */
+                $replySubject = 'Re: ' . (string)$original['subject'];
+                $replyName = $staffName;
+                $replyEmail = '';
+                $replyPhone = '';
+
+                $insert = $conn->prepare(
+                    "INSERT INTO messages
+                        (name, email, phone, message, status, priority)
+                     VALUES (?, ?, ?, ?, 'Replied', ?)"
                 );
 
-                if ($stmt->execute()) {
-                    $success = 'Reply saved successfully.';
+                if ($insert) {
+                    $insert->bind_param(
+                        'sssss',
+                        $replyName,
+                        $replyEmail,
+                        $replyPhone,
+                        $reply,
+                        $original['priority']
+                    );
 
-                    if (function_exists('audit')) {
-                        audit(
-                            $staffUsername ?: $staffName,
-                            'REPLY_MESSAGE',
-                            'Message ID ' . $messageId
+                    if ($insert->execute()) {
+                        $insert->close();
+
+                        $update = $conn->prepare(
+                            "UPDATE messages SET status = 'Replied' WHERE id = ?"
                         );
+
+                        if ($update) {
+                            $update->bind_param('i', $messageId);
+                            $update->execute();
+                            $update->close();
+                        }
+
+                        $success = 'Reply saved successfully.';
+
+                        if (function_exists('audit')) {
+                            audit(
+                                $staffUsername ?: $staffName,
+                                'REPLY_MESSAGE',
+                                'Message ID ' . $messageId
+                            );
+                        }
+                    } else {
+                        $error = 'Unable to save the reply.';
+                        $insert->close();
                     }
                 } else {
                     $error = 'Unable to save the reply.';
                 }
-
-                $stmt->close();
             }
         }
     }
@@ -274,17 +312,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $messageType = trim($_POST['message_type'] ?? 'Internal');
         $priority = trim($_POST['priority'] ?? 'Normal');
 
-        if (mb_strlen($senderName) > 150) {
-            $error = 'Sender name is too long.';
-        } elseif ($senderPhone !== '' && mb_strlen($senderPhone) > 30) {
-            $error = 'Phone number is too long.';
-        } elseif ($senderEmail !== '' && (mb_strlen($senderEmail) > 190 || !filter_var($senderEmail, FILTER_VALIDATE_EMAIL))) {
-            $error = 'Please enter a valid email address.';
-        } elseif (mb_strlen($subject) > 220) {
-            $error = 'Subject is too long.';
-        } elseif (mb_strlen($message) > 10000) {
-            $error = 'Message is too long.';
-        } elseif ($senderName === '') {
+        if ($senderName === '') {
             $error = 'Please enter the sender name.';
         } elseif ($subject === '') {
             $error = 'Please enter a subject.';
@@ -296,21 +324,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $conn->prepare(
                 "INSERT INTO messages
-                    (sender_name, sender_phone, sender_email, subject,
-                     message, message_type, priority, status, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 'Unread', NOW())"
+                    (name, email, phone, message, status, priority)
+                 VALUES (?, ?, ?, ?, 'Unread', ?)"
             );
 
             if ($stmt) {
 
+                /*
+                 * The live messages table has no subject/message_type
+                 * columns in the database currently used by Wasmer.
+                 * Keep the subject in the message body so the information
+                 * is not lost.
+                 */
+                $storedMessage = $subject !== ''
+                    ? '[' . $subject . '] ' . $message
+                    : $message;
+
                 $stmt->bind_param(
-                    'sssssss',
+                    'sssss',
                     $senderName,
-                    $senderPhone,
                     $senderEmail,
-                    $subject,
-                    $message,
-                    $messageType,
+                    $senderPhone,
+                    $storedMessage,
                     $priority
                 );
 
@@ -332,12 +367,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
-    }
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $success !== '') {
-    $_SESSION['messages_csrf'] = bin2hex(random_bytes(32));
-    $csrfToken = $_SESSION['messages_csrf'];
 }
 
 /* ------------------------------------------------------------------
@@ -385,10 +414,10 @@ if ($search !== '') {
     $like = '%' . $search . '%';
 
     $where[] = "(
-        sender_name LIKE ?
-        OR sender_phone LIKE ?
-        OR sender_email LIKE ?
-        OR subject LIKE ?
+        name LIKE ?
+        OR phone LIKE ?
+        OR email LIKE ?
+        OR message LIKE ?
         OR message LIKE ?
     )";
 
@@ -421,7 +450,7 @@ $sql =
             WHEN 'Replied' THEN 3
             ELSE 4
         END,
-        created_at DESC
+        date DESC
      LIMIT 250";
 
 $stmt = $conn->prepare($sql);
@@ -439,6 +468,15 @@ if ($stmt) {
 
     if ($result) {
         while ($row = $result->fetch_assoc()) {
+            $row['sender_name'] = $row['name'] ?? '';
+            $row['sender_phone'] = $row['phone'] ?? '';
+            $row['sender_email'] = $row['email'] ?? '';
+            $row['subject'] = '';
+            $row['message_type'] = 'Message';
+            $row['created_at'] = $row['date'] ?? '';
+            $row['reply'] = '';
+            $row['replied_by'] = '';
+            $row['replied_at'] = '';
             $messages[] = $row;
         }
     }
@@ -492,10 +530,36 @@ if ($selectedId > 0) {
         $stmt->execute();
         $selectedMessage = $stmt->get_result()->fetch_assoc();
         $stmt->close();
+
+        if ($selectedMessage) {
+            $selectedMessage['sender_name'] = $selectedMessage['name'] ?? '';
+            $selectedMessage['sender_phone'] = $selectedMessage['phone'] ?? '';
+            $selectedMessage['sender_email'] = $selectedMessage['email'] ?? '';
+            $selectedMessage['subject'] = '';
+            $selectedMessage['message_type'] = 'Message';
+            $selectedMessage['created_at'] = $selectedMessage['date'] ?? '';
+            $selectedMessage['reply'] = '';
+            $selectedMessage['replied_by'] = '';
+            $selectedMessage['replied_at'] = '';
+        }
     }
 
-    /* Reading a message must not mutate data through GET. Use a POST action
-       for status changes so links remain side-effect free. */
+    if (
+        $selectedMessage &&
+        $selectedMessage['status'] === 'Unread'
+    ) {
+        $stmt = $conn->prepare(
+            "UPDATE messages SET status = 'Read' WHERE id = ?"
+        );
+
+        if ($stmt) {
+            $stmt->bind_param('i', $selectedId);
+            $stmt->execute();
+            $stmt->close();
+
+            $selectedMessage['status'] = 'Read';
+        }
+    }
 }
 ?>
 <!doctype html>
@@ -1015,37 +1079,37 @@ input:focus,select:focus,textarea:focus{
 
         <a
             class="filter <?= $filter === 'all' ? 'active' : '' ?>"
-            href="<?= msg_e(BASE_URL) ?>admin/Messages.php"
+            href="Messages.php"
         >All</a>
 
         <a
             class="filter <?= $filter === 'unread' ? 'active' : '' ?>"
-            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=unread"
+            href="Messages.php?filter=unread"
         >Unread</a>
 
         <a
             class="filter <?= $filter === 'read' ? 'active' : '' ?>"
-            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=read"
+            href="Messages.php?filter=read"
         >Read</a>
 
         <a
             class="filter <?= $filter === 'replied' ? 'active' : '' ?>"
-            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=replied"
+            href="Messages.php?filter=replied"
         >Replied</a>
 
         <a
             class="filter <?= $filter === 'high' ? 'active' : '' ?>"
-            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=high"
+            href="Messages.php?filter=high"
         >High</a>
 
         <a
             class="filter <?= $filter === 'urgent' ? 'active' : '' ?>"
-            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=urgent"
+            href="Messages.php?filter=urgent"
         >Urgent</a>
 
         <a
             class="filter <?= $filter === 'archived' ? 'active' : '' ?>"
-            href="<?= msg_e(BASE_URL) ?>admin/Messages.php?filter=archived"
+            href="Messages.php?filter=archived"
         >Archived</a>
 
     </div>
@@ -1084,7 +1148,7 @@ input:focus,select:focus,textarea:focus{
             <small><?= number_format(count($messages)) ?> message(s) shown</small>
         </div>
 
-        <a class="btn secondary" href="<?= msg_e(BASE_URL) ?>admin/Messages.php">
+        <a class="btn secondary" href="Messages.php">
             ↻ Refresh
         </a>
 
@@ -1118,7 +1182,7 @@ input:focus,select:focus,textarea:focus{
 
             <a
                 class="message-item <?= $message['status'] === 'Unread' ? 'unread' : '' ?>"
-                href="<?= msg_e(BASE_URL) ?>admin/Messages.php?id=<?= (int)$message['id'] ?>&filter=<?= urlencode($filter) ?>"
+                href="Messages.php?id=<?= (int)$message['id'] ?>&filter=<?= urlencode($filter) ?>"
             >
 
                 <div class="message-top">
@@ -1128,7 +1192,7 @@ input:focus,select:focus,textarea:focus{
                     </div>
 
                     <small style="color:#64748b">
-                        <?= msg_e(date('d M Y, h:i A', strtotime($message['created_at']))) ?>
+                        <?= msg_e(date('d M Y, h:i A', strtotime((string)$message['created_at']))) ?>
                     </small>
 
                 </div>
@@ -1183,7 +1247,7 @@ input:focus,select:focus,textarea:focus{
     <div class="detail">
 
         <h2 class="detail-title">
-            <?= msg_e($selectedMessage['subject']) ?>
+            Message #<?= (int)$selectedMessage['id'] ?>
         </h2>
 
         <div class="detail-meta">
@@ -1204,7 +1268,7 @@ input:focus,select:focus,textarea:focus{
             <?= msg_e($selectedMessage['message_type']) ?><br>
 
             Received:
-            <?= msg_e(date('d M Y, h:i A', strtotime($selectedMessage['created_at']))) ?>
+            <?= msg_e(date('d M Y, h:i A', strtotime((string)$selectedMessage['created_at']))) ?>
 
         </div>
 
@@ -1251,7 +1315,7 @@ input:focus,select:focus,textarea:focus{
 
             <form method="post">
 
-                <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
+                <input type="hidden" name="csrf_token" value="<?= msg_e(messages_csrf()) ?>">
 
                 <input type="hidden" name="action" value="reply">
                 <input
@@ -1267,7 +1331,6 @@ input:focus,select:focus,textarea:focus{
                 <textarea
                     name="reply"
                     placeholder="Write the clinic's response..."
-                    maxlength="10000"
                     required
                 ><?= msg_e($selectedMessage['reply'] ?? '') ?></textarea>
 
@@ -1276,19 +1339,6 @@ input:focus,select:focus,textarea:focus{
                     <button class="btn green" type="submit">
                         ✓ Save Reply
                     </button>
-
-                    <?php if ($selectedMessage['status'] === 'Unread'): ?>
-                        <button
-                            class="btn secondary"
-                            type="submit"
-                            formaction="<?= msg_e(BASE_URL) ?>admin/Messages.php"
-                            name="action"
-                            value="mark_read"
-                        >
-                            Mark Read
-                        </button>
-                        <input type="hidden" name="message_id" value="<?= (int)$selectedMessage['id'] ?>">
-                    <?php endif; ?>
 
 
 
@@ -1302,7 +1352,7 @@ input:focus,select:focus,textarea:focus{
 
             <form method="post" style="display:inline">
 
-                <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
+                <input type="hidden" name="csrf_token" value="<?= msg_e(messages_csrf()) ?>">
 
                 <input type="hidden" name="action" value="priority">
                 <input type="hidden" name="message_id" value="<?= (int)$selectedMessage['id'] ?>">
@@ -1330,7 +1380,7 @@ input:focus,select:focus,textarea:focus{
                 <form method="post" style="display:inline;margin-left:5px"
                       onsubmit="return confirm('Archive this message?');">
 
-                    <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
+                <input type="hidden" name="csrf_token" value="<?= msg_e(messages_csrf()) ?>">
 
                     <input type="hidden" name="action" value="archive">
                     <input type="hidden" name="message_id" value="<?= (int)$selectedMessage['id'] ?>">
@@ -1345,7 +1395,7 @@ input:focus,select:focus,textarea:focus{
 
                 <form method="post" style="display:inline;margin-left:5px">
 
-                    <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
+                <input type="hidden" name="csrf_token" value="<?= msg_e(messages_csrf()) ?>">
 
                     <input type="hidden" name="action" value="restore">
                     <input type="hidden" name="message_id" value="<?= (int)$selectedMessage['id'] ?>">
@@ -1363,7 +1413,7 @@ input:focus,select:focus,textarea:focus{
                 <form method="post" style="display:inline;margin-left:5px"
                       onsubmit="return confirm('Permanently delete this message?');">
 
-                    <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
+                <input type="hidden" name="csrf_token" value="<?= msg_e(messages_csrf()) ?>">
 
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="message_id" value="<?= (int)$selectedMessage['id'] ?>">
@@ -1395,7 +1445,7 @@ input:focus,select:focus,textarea:focus{
 
         <form method="post">
 
-                <input type="hidden" name="csrf_token" value="<?= msg_e($csrfToken) ?>">
+                <input type="hidden" name="csrf_token" value="<?= msg_e(messages_csrf()) ?>">
 
             <input type="hidden" name="action" value="add_message">
 
@@ -1475,7 +1525,6 @@ input:focus,select:focus,textarea:focus{
                 <textarea
                     name="message"
                     placeholder="Write the message..."
-                    maxlength="10000"
                     required
                 ></textarea>
             </div>
