@@ -2,9 +2,10 @@
 require_once 'config.php';
 
 $rows = $conn->query("
-    SELECT id, filename, title, caption
+    SELECT id, image_path, image, title, caption, description, is_active, sort_order, display_order
     FROM clinic_gallery
-    ORDER BY id DESC
+    WHERE is_active = 1
+    ORDER BY COALESCE(display_order, sort_order) ASC, id DESC
 ");
 
 $queryError = !$rows;
@@ -170,7 +171,7 @@ $queryError = !$rows;
                         $filename !== '' &&
                         in_array($extension, $allowedExtensions, true)
                     ) {
-                        $imageUrl = BASE_URL . 'img/gallery/' . rawurlencode($filename);
+                        $imageUrl = BASE_URL . 'img/' . rawurlencode($filename);
                     }
                     ?>
 
@@ -189,8 +190,14 @@ $queryError = !$rows;
                         <div class="gallery-content">
                             <h3><?= e($r['title'] ?? '') ?></h3>
 
-                            <?php if (!empty($r['caption'])): ?>
-                                <p><?= e($r['caption']) ?></p>
+                            <?php
+                            $text = trim((string)($r['caption'] ?? ''));
+                            if ($text === '') {
+                                $text = trim((string)($r['description'] ?? ''));
+                            }
+                            ?>
+                            <?php if ($text !== ''): ?>
+                                <p><?= e($text) ?></p>
                             <?php endif; ?>
                         </div>
 
