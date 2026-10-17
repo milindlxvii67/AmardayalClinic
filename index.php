@@ -118,7 +118,8 @@ $staff =
 
         /* ---------- Hero ---------- */
         .hp-hero { padding: 56px 0 110px; background: linear-gradient(180deg, var(--hp-primary-soft) 0%, var(--hp-bg) 100%); }
-        .hp-hero-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 48px; align-items: center; }
+        .hp-hero-grid { display: grid; grid-template-columns: 1fr; gap: 48px; align-items: center; }
+        .hp-hero-grid > div:first-child { max-width: 820px; }
         .hp-hero h1 { font-size: clamp(2.4rem, 5.2vw, 4rem); font-weight: 800; color: var(--hp-primary-deep); max-width: 14ch; }
         .hp-hero-lead { margin-top: 20px; font-size: 1.15rem; color: var(--hp-muted); max-width: 46ch; }
         .hp-hero-actions { margin-top: 32px; display: flex; flex-wrap: wrap; gap: 14px; }
@@ -126,33 +127,6 @@ $staff =
         .hp-focus-list li {
             padding: 8px 16px; border-radius: 999px; background: var(--hp-white);
             border: 1px solid var(--hp-line); font-weight: 600; font-size: .95rem; color: var(--hp-primary-deep);
-        }
-
-        .hp-team { position: relative; min-height: 440px; border-radius: 36px 36px 120px 36px; background: var(--hp-primary); overflow: hidden; }
-        .hp-team::before {
-            content: ""; position: absolute; inset: auto -20% -35% -20%; height: 70%;
-            background: var(--hp-primary-deep); border-radius: 50%;
-        }
-        .hp-person { position: absolute; bottom: 0; display: flex; flex-direction: column; align-items: center; }
-        .hp-person img { display: block; height: 100%; width: auto; max-width: 100%; object-fit: contain; object-position: bottom; }
-        .hp-person-back { left: 4%; width: 46%; height: 78%; }
-        .hp-person-front { right: 4%; width: 52%; height: 92%; }
-        .hp-person figcaption {
-            position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
-            background: #fff; color: var(--hp-ink); border-radius: 12px; padding: 8px 14px;
-            font-size: .85rem; line-height: 1.3; text-align: center; white-space: nowrap;
-            box-shadow: 0 6px 18px rgba(7,71,90,.25);
-        }
-        .hp-person figcaption strong { display: block; font-size: .9rem; }
-        .hp-person figcaption span { color: var(--hp-muted); }
-        .hp-person-wrap { margin: 0; }
-
-        /* ---------- Quick access strip (overlaps hero) ---------- */
-        .hp-quick { margin-top: -62px; position: relative; z-index: 2; }
-        .hp-quick-grid {
-            display: grid; grid-template-columns: repeat(4, 1fr);
-            background: var(--hp-white); border: 1px solid var(--hp-line);
-            border-radius: 22px; box-shadow: 0 18px 40px rgba(7,71,90,.10); overflow: hidden;
         }
         .hp-quick-item {
             display: flex; gap: 14px; align-items: center; padding: 22px 24px;
@@ -420,7 +394,6 @@ $staff =
             .hp-hero { padding: 36px 0 100px; }
             .hp-hero-grid { grid-template-columns: 1fr; gap: 36px; }
             .hp-hero h1 { max-width: 18ch; }
-            .hp-team { min-height: 380px; max-width: 520px; width: 100%; margin-inline: auto; }
             .hp-quick-grid { grid-template-columns: repeat(2, 1fr); }
             .hp-quick-item:nth-child(2) { border-right: 0; }
             .hp-quick-item:nth-child(-n+2) { border-bottom: 1px solid var(--hp-line); }
@@ -439,8 +412,6 @@ $staff =
             .hp-service-row { grid-template-columns: 52px 1fr; }
             .hp-service-row a { grid-column: 2; }
             .hp-steps { grid-template-columns: 1fr; }
-            .hp-team { min-height: 340px; border-radius: 28px 28px 80px 28px; }
-            .hp-person figcaption { font-size: .78rem; padding: 6px 10px; }
         }
         @media (prefers-reduced-motion: reduce) {
             .hp * { transition: none !important; }
@@ -469,17 +440,6 @@ $staff =
                     <li>Physiotherapy &amp; rehab</li>
                     <li>Diabetes &amp; general care</li>
                 </ul>
-            </div>
-
-            <div class="hp-team" aria-label="AmarDayal care team">
-                <figure class="hp-person hp-person-back hp-person-wrap">
-                    <img src="img/doctors/doctor_1787563609_8171e2db.png" alt="AmarDayal clinic staff member">
-                    <figcaption><strong>Care Team</strong><span>Patient support</span></figcaption>
-                </figure>
-                <figure class="hp-person hp-person-front hp-person-wrap">
-                    <img src="img/doctors/doctor_1787564675_ecf618eeee.png" alt="AmarDayal clinic doctor">
-                    <figcaption><strong>Medical Care</strong><span>Professional consultation</span></figcaption>
-                </figure>
             </div>
         </div>
     </section>
