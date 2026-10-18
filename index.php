@@ -128,9 +128,60 @@ $staff =
             padding: 8px 16px; border-radius: 999px; background: var(--hp-white);
             border: 1px solid var(--hp-line); font-weight: 600; font-size: .95rem; color: var(--hp-primary-deep);
         }
+        /* ---------- Compact hero quick-action buttons ---------- */
+        .hp-quick {
+            position: relative;
+            z-index: 5;
+        }
+
+        .hp-quick-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+
         .hp-quick-item {
-            display: flex; gap: 14px; align-items: center; padding: 22px 24px;
-            text-decoration: none; border-right: 1px solid var(--hp-line); transition: background .2s;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            min-height: 72px;
+            padding: 12px 14px;
+            background: var(--hp-white);
+            border: 1px solid var(--hp-line);
+            border-radius: 16px;
+            text-decoration: none;
+            box-shadow: 0 8px 18px rgba(7, 71, 90, .08);
+            transition: transform .12s ease, box-shadow .12s ease, background .2s, border-color .2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .hp-quick-item:last-child {
+            border-right: 1px solid var(--hp-line);
+        }
+
+        .hp-quick-item:hover {
+            background: var(--hp-white);
+            border-color: #c8dce1;
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(7, 71, 90, .12);
+        }
+
+        /* Physical press/click depth effect */
+        .hp-quick-item:active {
+            transform: translateY(3px) scale(.985);
+            box-shadow: 0 3px 7px rgba(7, 71, 90, .16);
+        }
+
+        .hp-quick-icon {
+            flex: none;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: grid;
+            place-items: center;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #fff;
         }
         .hp-quick-item:last-child { border-right: 0; }
         .hp-quick-item:hover { background: var(--hp-primary-soft); }
