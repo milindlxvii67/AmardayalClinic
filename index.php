@@ -118,9 +118,33 @@ $staff =
 
         /* ---------- Hero ---------- */
         .hp-hero { padding: 56px 0 110px; background: linear-gradient(180deg, var(--hp-primary-soft) 0%, var(--hp-bg) 100%); }
-        .hp-hero-grid { display: grid; grid-template-columns: 1fr; gap: 48px; align-items: center; }
+        .hp-hero-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(360px, 0.9fr);
+            gap: 56px;
+            align-items: center;
+        }
         .hp-hero-grid > div:first-child { max-width: 820px; }
         .hp-hero h1 { font-size: clamp(2.4rem, 5.2vw, 4rem); font-weight: 800; color: var(--hp-primary-deep); max-width: 14ch; }
+
+        /* ---------- Hero Image ---------- */
+        .hp-hero-image {
+            width: 100%;
+            height: 440px;
+            border-radius: 34px;
+            overflow: hidden;
+            position: relative;
+            background: var(--hp-primary-soft);
+            box-shadow: 0 20px 45px rgba(7, 71, 90, .12);
+        }
+
+        .hp-hero-image img {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: cover;
+            object-position: center;
+        }
         .hp-hero-lead { margin-top: 20px; font-size: 1.15rem; color: var(--hp-muted); max-width: 46ch; }
         .hp-hero-actions { margin-top: 32px; display: flex; flex-wrap: wrap; gap: 14px; }
         .hp-focus-list { list-style: none; margin: 36px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
@@ -128,60 +152,9 @@ $staff =
             padding: 8px 16px; border-radius: 999px; background: var(--hp-white);
             border: 1px solid var(--hp-line); font-weight: 600; font-size: .95rem; color: var(--hp-primary-deep);
         }
-        /* ---------- Compact hero quick-action buttons ---------- */
-        .hp-quick {
-            position: relative;
-            z-index: 5;
-        }
-
-        .hp-quick-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 12px;
-        }
-
         .hp-quick-item {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            min-height: 72px;
-            padding: 12px 14px;
-            background: var(--hp-white);
-            border: 1px solid var(--hp-line);
-            border-radius: 16px;
-            text-decoration: none;
-            box-shadow: 0 8px 18px rgba(7, 71, 90, .08);
-            transition: transform .12s ease, box-shadow .12s ease, background .2s, border-color .2s;
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        .hp-quick-item:last-child {
-            border-right: 1px solid var(--hp-line);
-        }
-
-        .hp-quick-item:hover {
-            background: var(--hp-white);
-            border-color: #c8dce1;
-            transform: translateY(-2px);
-            box-shadow: 0 12px 24px rgba(7, 71, 90, .12);
-        }
-
-        /* Physical press/click depth effect */
-        .hp-quick-item:active {
-            transform: translateY(3px) scale(.985);
-            box-shadow: 0 3px 7px rgba(7, 71, 90, .16);
-        }
-
-        .hp-quick-icon {
-            flex: none;
-            width: 36px;
-            height: 36px;
-            border-radius: 10px;
-            display: grid;
-            place-items: center;
-            font-size: 1rem;
-            font-weight: 700;
-            color: #fff;
+            display: flex; gap: 14px; align-items: center; padding: 22px 24px;
+            text-decoration: none; border-right: 1px solid var(--hp-line); transition: background .2s;
         }
         .hp-quick-item:last-child { border-right: 0; }
         .hp-quick-item:hover { background: var(--hp-primary-soft); }
@@ -445,6 +418,12 @@ $staff =
             .hp-hero { padding: 36px 0 100px; }
             .hp-hero-grid { grid-template-columns: 1fr; gap: 36px; }
             .hp-hero h1 { max-width: 18ch; }
+            .hp-hero-image {
+                height: 380px;
+                max-width: 620px;
+                width: 100%;
+                margin-inline: auto;
+            }
             .hp-quick-grid { grid-template-columns: repeat(2, 1fr); }
             .hp-quick-item:nth-child(2) { border-right: 0; }
             .hp-quick-item:nth-child(-n+2) { border-bottom: 1px solid var(--hp-line); }
@@ -459,6 +438,7 @@ $staff =
         @media (max-width: 560px) {
             .hp-quick-grid { grid-template-columns: 1fr; }
             .hp-quick-item { border-right: 0; border-bottom: 1px solid var(--hp-line); }
+            .hp-hero-image { height: 320px; }
             .hp-quick-item:last-child { border-bottom: 0; }
             .hp-service-row { grid-template-columns: 52px 1fr; }
             .hp-service-row a { grid-column: 2; }
@@ -491,6 +471,14 @@ $staff =
                     <li>Physiotherapy &amp; rehab</li>
                     <li>Diabetes &amp; general care</li>
                 </ul>
+            </div>
+
+            <!-- Hero image -->
+            <div class="hp-hero-image">
+                <img
+                    src="<?=BASE_URL?>img/hero/clinic-hero.jpg"
+                    alt="AmarDayal Clinic"
+                >
             </div>
         </div>
     </section>
