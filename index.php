@@ -546,7 +546,7 @@ $staff =
             <!-- Hero image -->
             <div class="hp-hero-image">
                 <img
-                    src="<?=BASE_URL?>img/hero/clinic-hero.jpg"
+                    src="<?=BASE_URL?>img/hero/clinic-hero.jpeg"
                     alt="AmarDayal Clinic"
                 >
             </div>
